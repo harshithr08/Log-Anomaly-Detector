@@ -35,7 +35,7 @@ Three things the project proves, each with a number from a re-runnable script:
 - [x] Phase 4: Correct under failure
 - [x] Phase 5: Models
 - [x] Phase 6: Alerts + dashboard
-- [ ] Phase 7: Measure & optimize
+- [x] Phase 7: Measure & optimize
 - [ ] Phase 8: Fault evaluation + polish
 - [ ] Phase 9: Public deployment
 - [ ] Bonus: HDFS benchmark
@@ -149,8 +149,8 @@ and a push. Tests are written inside each phase, not at the end.
 | 16 | 6 | Alert manager: group, explain, auto-resolve ✅ |
 | 17 | 6 | Query API + WebSocket ✅ |
 | 18 | 6 | Dashboard with Break/Fix buttons ✅ |
-| 19 | 7 | Load test + benchmark script |
-| 20 | 7 | Optimize the bottleneck (batching, bulk inserts, ONNX) |
+| 19 | 7 | Load test + benchmark script ✅ |
+| 20 | 7 | Optimize the bottleneck ✅ (livelock fix, hiredis, fewer checks) |
 | 21 | 8 | Fault evaluation + ablation |
 | 22 | 8 | Drift re-calibration, health checks, auth, structured logs |
 | 23 | 8 | Final README: diagram, results, demo GIF |

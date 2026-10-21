@@ -9,6 +9,7 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 
 from logad.common.db import Session, make_engine
+from logad.common.groups import lag
 from logad.common.streams import Keys
 from logad.parser.worker import ParserWorker
 from logad.sessions.builder import GROUP as BUILDERS
@@ -183,6 +184,28 @@ async def test_replaced_builder_takes_over_at_once(pipeline):
     await pipeline.drain(replacement)
     await replacement.save_due(now=float("inf"))
     assert replacement.counts["late"] == 0
+    await pipeline.check_sessions()
+
+
+async def test_builder_keeps_closing_sessions_under_sustained_load(pipeline):
+    """Under load its stream is never empty. Waiting for empty would close
+    nothing (found by the benchmark); sessions older than the oldest unread
+    event must close anyway, and still be complete."""
+    pipeline.settings = pipeline.realistic_claims.model_copy(
+        update={"builder_batch_size": 60, "session_grace_s": 0.01}
+    )
+    await pipeline.queue_lines()
+    await pipeline.drain(await pipeline.parser("parser"))
+    builder = await pipeline.builder("builder")
+    saved_while_busy = 0
+    while await builder.read_batch(block_ms=20):  # a few events at a time: always a backlog
+        unread = [await lag(pipeline.redis, s, BUILDERS) for s in builder.streams]
+        saved = await builder.save_due(now=float("inf"))
+        if any(unread):
+            saved_while_busy += saved
+    await builder.save_due(now=float("inf"))
+    assert saved_while_busy > 0
+    assert builder.counts["late"] == 0
     await pipeline.check_sessions()
 
 

@@ -130,7 +130,8 @@ class SessionBuilder:
           - the oldest raw line the parsers haven't finished (the shipper sends
             lines in time order, so all older lines are already events), and
           - the oldest event held by another builder (e.g. one that died and
-            whose events are not claimed yet)."""
+            whose events are not claimed yet), and
+          - the oldest event in my own streams that I haven't read yet."""
         busy, candidates = False, []
 
         if await backlog(self.redis, self.keys.raw_logs, PARSERS):
@@ -145,6 +146,18 @@ class SessionBuilder:
             candidates.append(await self._raw_line_time(min=after, max="+"))  # not handed out
 
         for stream in self.streams:
+            # Events in my own stream that I haven't read yet. (Waiting until the
+            # stream is empty instead would never happen under sustained load:
+            # the builder would close nothing at all.)
+            if await lag(self.redis, stream, GROUP):
+                busy = True
+                groups = await self.redis.xinfo_groups(stream)
+                info = next(g for g in groups if g["name"] == GROUP)
+                unread = await self.redis.xrange(
+                    stream, min=f"({info['last-delivered-id']}", max="+", count=1
+                )
+                if unread:
+                    candidates.append(epoch(unread[0][1]["ts"]))
             summary = await self.redis.xpending(stream, GROUP)
             for consumer in summary["consumers"] or []:
                 if consumer["name"] == self.consumer or not int(consumer["pending"]):
@@ -162,9 +175,6 @@ class SessionBuilder:
 
     async def save_due(self, now: float | None = None) -> int:
         """Save every finished session, then ack its events. Returns how many."""
-        for stream in self.streams:
-            if await lag(self.redis, stream, GROUP):
-                return 0  # read everything available first; older events may be in there
         idle, safe = await self.upstream_progress()
         now = time.monotonic() if now is None else now
         sessions = self.assembler.due(now, upstream_idle=idle, upstream_safe=safe)
@@ -201,14 +211,18 @@ async def run() -> None:
     builder = SessionBuilder(redis, engine, settings, settings.consumer_name)
     await builder.setup()
     log.info("Session builder %s reading %s", builder.consumer, ", ".join(builder.streams))
-    saved, last_report = 0, time.monotonic()
+    saved, last_report, last_save = 0, time.monotonic(), 0.0
     stop = stop_event()
     backoff = 0.5
     try:
         while not stop.is_set():
             try:
                 await builder.read_batch()
-                saved += await builder.save_due()
+                # Checking what is due costs ~10 Redis round trips; under load a
+                # batch is read every few ms, so check a few times a second only.
+                if time.monotonic() - last_save >= settings.builder_save_every_s:
+                    last_save = time.monotonic()
+                    saved += await builder.save_due()
                 backoff = 0.5
             except TRANSIENT_ERRORS as error:
                 # Unsaved sessions were put back and their events are still pending.
@@ -227,7 +241,7 @@ async def run() -> None:
                     builder.counts["late"],
                     builder.reader.recovered,
                 )
-                saved, last_report = 0, time.monotonic()
+                saved, last_report, last_save = 0, time.monotonic(), 0.0
     finally:
         # Open sessions are not saved half-finished: their events stay pending
         # and the next builder rebuilds them.

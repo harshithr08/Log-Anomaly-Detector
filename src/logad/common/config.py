@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     builder_index: int = 0  # this builder owns shards where shard % builder_count == index
     builder_count: int = 1
     builder_batch_size: int = 500
+    builder_save_every_s: float = 0.25  # how often to check for finished sessions
     session_grace_s: float = 2.0  # after the last line, wait this long for late lines
     session_timeout_s: float = 30.0  # close a session that went quiet without a last line
     session_end_service: str = "shop"  # the last line of a request is this service's
