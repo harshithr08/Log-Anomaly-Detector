@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "logad"
+version = "0.1.0"
+description = "Live log anomaly detection pipeline"
+requires-python = ">=3.11"
+dependencies = [
+    "asyncpg==0.32.0",
+    "pydantic-settings==2.16.1",
+    "redis==8.1.0",
+    "sqlalchemy[asyncio]==2.1.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "ruff==0.17.1",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# E/F: errors, I: import order, UP: modern syntax, B: likely bugs
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: needs Redis and Postgres running (docker compose up -d)",
+]

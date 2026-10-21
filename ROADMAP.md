@@ -29,7 +29,7 @@ Three things the project proves, each with a number from a re-runnable script:
 
 ## Progress
 
-- [ ] Phase 1: Foundation
+- [x] Phase 1: Foundation
 - [ ] Phase 2: Demo shop + traffic + fault injector
 - [ ] Phase 3: Live pipeline
 - [ ] Phase 4: Correct under failure
