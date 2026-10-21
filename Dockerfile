@@ -18,3 +18,5 @@ RUN mkdir -p src/logad src/shop \
 # 2. Our code (rebuilds in seconds).
 COPY src ./src
 RUN pip install --no-deps .
+COPY alembic.ini ./
+COPY migrations ./migrations

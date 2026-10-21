@@ -1,3 +1,12 @@
+# Settings shared by the pipeline processes.
+x-pipeline: &pipeline
+  build: .
+  image: logad
+  restart: unless-stopped
+  environment: &pipeline-env
+    LOGAD_REDIS_URL: redis://redis:6379/0
+    LOGAD_DATABASE_URL: postgresql+asyncpg://logad:logad@postgres:5432/logad
+
 # Settings shared by the four shop services.
 x-shop-service: &shop-service
   build: .
@@ -48,6 +57,14 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # ── pipeline ────────────────────────────────────────────────────────────────
+  migrate: # one-shot: create / update the database tables, then exit
+    <<: *pipeline
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres: { condition: service_healthy }
 
   # ── demo shop (the system being monitored) ──────────────────────────────────
   shop:

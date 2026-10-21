@@ -8,7 +8,9 @@ version = "0.1.0"
 description = "Live log anomaly detection pipeline"
 requires-python = ">=3.11"
 dependencies = [
+    "alembic==1.20.0",
     "asyncpg==0.32.0",
+    "drain3==0.9.11",
     "fastapi==0.156.3",
     "httpx==0.28.1",
     "pydantic-settings==2.16.1",

@@ -16,7 +16,7 @@ python -m venv .venv
 .venv\Scripts\activate             # Windows  (Linux/macOS: source .venv/bin/activate)
 pip install -e ".[dev]"
 
-docker compose up -d --wait        # Redis + Postgres
+docker compose up -d --wait        # Redis + Postgres (+ migrations) + the shop
 python -m logad.common.health      # should print "ok" twice
 pytest                             # all tests
 ```
@@ -67,7 +67,8 @@ Settings come from environment variables (`LOGAD_*`); defaults are in
 ## Project layout
 
 ```
-src/logad/common/   config + health checks shared by every process
+src/logad/common/   config, database tables, health checks shared by every process
+migrations/         database migrations (Alembic); `alembic upgrade head` applies them
 src/shop/           demo shop: services, traffic generator, fault injector
 tests/              pytest tests (integration tests need docker compose up)
 docker-compose.yml  Redis + Postgres + the shop
