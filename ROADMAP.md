@@ -32,7 +32,7 @@ Three things the project proves, each with a number from a re-runnable script:
 - [x] Phase 1: Foundation
 - [x] Phase 2: Demo shop + traffic + fault injector
 - [x] Phase 3: Live pipeline
-- [ ] Phase 4: Correct under failure
+- [x] Phase 4: Correct under failure
 - [ ] Phase 5: Models
 - [ ] Phase 6: Alerts + dashboard
 - [ ] Phase 7: Measure & optimize
@@ -134,9 +134,9 @@ and a push. Tests are written inside each phase, not at the end.
 | 6 | 3 | Ingest API → `raw-logs` stream ✅ |
 | 7 | 3 | Parser workers: Drain3 + shared pattern registry ✅ |
 | 8 | 3 | Session builder → sessions in Postgres ✅ |
-| 9 | 4 | Ack after processing, reclaim from dead workers, idempotent writes |
-| 10 | 4 | Dead-letter stream, backpressure (429), graceful shutdown |
-| 11 | 4 | Chaos test: kill workers, prove 0 lost / 0 duplicated |
+| 9 | 4 | Ack after processing, reclaim from dead workers, idempotent writes ✅ |
+| 10 | 4 | Dead-letter stream, backpressure (429), graceful shutdown ✅ |
+| 11 | 4 | Chaos test: kill workers, prove 0 lost / 0 duplicated ✅ |
 | 12 | 5 | Dataset builder + baselines |
 | 13 | 5 | LSTM + Isolation Forest training, threshold calibration, versioned models |
 | 14 | 5 | ONNX export + scoring workers |

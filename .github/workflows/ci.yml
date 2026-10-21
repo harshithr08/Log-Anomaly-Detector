@@ -71,3 +71,22 @@ jobs:
       - if: failure()
         run: docker compose logs --tail 50
       - run: docker compose down -v
+
+  chaos:
+    # Kill pipeline workers at random under traffic; fail on any lost or
+    # duplicated line.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e .
+      - run: python -u eval/chaos.py --duration 60 --every 6 --fresh
+      - if: always()
+        run: cat eval/results/chaos.md || true
+      - if: failure()
+        run: docker compose logs --tail 80
+      - if: always()
+        run: docker compose down -v

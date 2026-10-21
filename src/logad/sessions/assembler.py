@@ -27,7 +27,8 @@ NO_REQUEST = "-"
 REMEMBER_CLOSED_S = 300  # how long to recognise late events of a closed session
 
 
-def _epoch(ts: str) -> float:
+def epoch(ts: str) -> float:
+    """ISO-8601 timestamp -> seconds since 1970."""
     return datetime.fromisoformat(ts).timestamp()
 
 
@@ -61,7 +62,7 @@ class SessionAssembler:
         "duplicate"    another entry carrying the same line (sent twice)
         "late"         its session already closed
         "unsessioned"  written outside any request"""
-        ts = _epoch(event["ts"])
+        ts = epoch(event["ts"])
         if self.watermark is None or ts > self.watermark:
             self.watermark = ts
         self.last_arrival = now

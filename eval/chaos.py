@@ -1,0 +1,222 @@
+"""
+chaos.py — kill pipeline workers at random while traffic flows, then prove
+that nothing was lost and nothing was counted twice.
+
+Needs the Docker Compose stack (it starts it). Steps:
+    1. traffic flows through the shop; the pipeline turns logs into sessions
+    2. every few seconds a random pipeline worker is killed with SIGKILL (no
+       chance to clean up) and started again; some are replaced by a brand-new
+       container, whose unfinished work can only be rescued by claiming it
+    3. traffic stops; wait until the pipeline has drained
+    4. every request in the shop's log files must be exactly one session in
+       Postgres, holding exactly that request's lines, each line once
+
+Usage:
+    python eval/chaos.py                      # ~2 minutes of chaos
+    python eval/chaos.py --duration 60 --fresh
+Exit code 0 = no loss, no duplicates. Writes eval/results/chaos.md.
+"""
+
+import argparse
+import asyncio
+import os
+import random
+import re
+import shutil
+import subprocess
+import sys
+import time
+from collections import Counter
+from datetime import UTC, datetime
+from pathlib import Path
+
+from redis.asyncio import Redis
+from sqlalchemy import text
+
+from logad.common.config import get_settings
+from logad.common.db import make_engine
+from logad.common.groups import backlog
+from logad.common.streams import BUILDERS, PARSERS, Keys
+
+VICTIMS = ["parser", "sessions", "shipper", "ingest"]
+LOG_DIR = Path("runtime/logs")
+RESULTS = Path("eval/results/chaos.md")
+REQUEST_ID = re.compile(r"\[req=([^\]]+)\]")
+
+
+def compose(*args: str, check: bool = True) -> str:
+    result = subprocess.run(
+        ["docker", "compose", *args], capture_output=True, text=True, check=False
+    )
+    if check and result.returncode != 0:
+        sys.exit(f"docker compose {' '.join(args)} failed:\n{result.stderr}")
+    return result.stdout.strip()
+
+
+def containers(service: str) -> list[str]:
+    return compose("ps", "-q", service).split()
+
+
+def bring_up(service: str) -> None:
+    """Start the service's missing or stopped containers (two parsers)."""
+    scale = ["--scale", "parser=2"] if service == "parser" else []
+    compose("up", "-d", "--no-deps", *scale, service)
+
+
+def docker(*args: str) -> None:
+    subprocess.run(["docker", *args], capture_output=True, check=True)
+
+
+def wreak_havoc(duration: float, every: float, rng: random.Random) -> list[str]:
+    """Kill (and revive) random workers until `duration` is over."""
+    events = []
+    end = time.monotonic() + duration
+    while time.monotonic() < end:
+        time.sleep(rng.uniform(every * 0.5, every * 1.5))
+        service = rng.choice(VICTIMS)
+        target = rng.choice(containers(service))
+        if rng.random() < 0.25 and service in ("parser", "sessions"):
+            # Replace: a new container with a new consumer name. The old one's
+            # pending work can only be rescued by claiming it.
+            docker("kill", target)
+            docker("rm", target)
+            bring_up(service)
+            events.append(f"replaced {service} (killed {target[:12]}, new container)")
+        else:
+            docker("kill", target)
+            time.sleep(rng.uniform(1, 4))
+            docker("start", target)
+            events.append(f"killed {service} {target[:12]}, restarted it")
+        print(f"  {events[-1]}", flush=True)
+    return events
+
+
+async def wait_until_drained(timeout: float) -> float:
+    """Wait until every raw line is parsed and every event is in a saved
+    session. Returns how long it took."""
+    settings = get_settings()
+    keys = Keys(settings.stream_prefix)
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    started = time.monotonic()
+    calm = 0
+    try:
+        while time.monotonic() - started < timeout:
+            waiting = await backlog(redis, keys.raw_logs, PARSERS)
+            for shard in range(settings.shard_count):
+                waiting += await backlog(redis, keys.events(shard), BUILDERS)
+            calm = calm + 1 if waiting == 0 else 0
+            if calm >= 3:
+                return time.monotonic() - started
+            await asyncio.sleep(3)
+    finally:
+        await redis.aclose()
+    sys.exit(f"pipeline did not drain within {timeout:.0f}s")
+
+
+async def check() -> dict:
+    """Compare every request in the log files with the sessions in Postgres."""
+    lines = Counter()
+    for path in LOG_DIR.glob("*.log*"):
+        for line in path.open(encoding="utf-8"):
+            match = REQUEST_ID.search(line)
+            if match and match[1] != "-":
+                lines[match[1]] += 1
+
+    engine = make_engine(get_settings().database_url)
+    async with engine.connect() as conn:
+        rows = (
+            await conn.execute(
+                text(
+                    "select session_id, event_count, "
+                    "(select count(distinct e->>'line_id') from jsonb_array_elements(events) e)"
+                    " as unique_lines from sessions"
+                )
+            )
+        ).all()
+    await engine.dispose()
+    sessions = {row.session_id: row for row in rows}
+    return {
+        "requests in log files": len(lines),
+        "sessions in Postgres": len(sessions),
+        "missing sessions": len(set(lines) - set(sessions)),
+        "extra sessions": len(set(sessions) - set(lines)),
+        "sessions with wrong event count": sum(
+            1 for sid, row in sessions.items() if row.event_count != lines[sid]
+        ),
+        "sessions with a line twice": sum(1 for row in rows if row.unique_lines != row.event_count),
+    }
+
+
+def write_results(args, events: list[str], drain_s: float, result: dict, ok: bool) -> None:
+    lines = [
+        "# Chaos test",
+        "",
+        "Generated by `python eval/chaos.py`. Do not edit by hand.",
+        "",
+        f"Run at {datetime.now(UTC):%Y-%m-%d %H:%M} UTC: {args.duration:.0f}s of traffic "
+        f"at ~{args.rate}/s, a pipeline worker killed with SIGKILL every ~{args.every:.0f}s.",
+        "",
+        "## What was killed",
+        "",
+        *[f"1. {event}" for event in events],
+        "",
+        f"Drained {drain_s:.0f}s after traffic stopped.",
+        "",
+        "## Result",
+        "",
+        "| Check | Value |",
+        "|---|---|",
+        *[f"| {name} | {value:,} |" for name, value in result.items()],
+        "",
+        f"**{'PASS: nothing lost, nothing counted twice.' if ok else 'FAIL'}**",
+    ]
+    RESULTS.parent.mkdir(parents=True, exist_ok=True)
+    RESULTS.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Kill pipeline workers; prove 0 lost / 0 duplicated."
+    )
+    parser.add_argument("--duration", type=float, default=120, help="seconds of chaos")
+    parser.add_argument("--every", type=float, default=8, help="seconds between kills (avg)")
+    parser.add_argument("--rate", type=float, default=20, help="shop requests per second")
+    parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--fresh", action="store_true", help="start from empty data")
+    args = parser.parse_args()
+
+    if args.fresh:
+        compose("down", "-v")
+        shutil.rmtree("runtime", ignore_errors=True)
+    print("Starting the stack...", flush=True)
+    subprocess.run(
+        ["docker", "compose", "up", "-d", "--wait", "--build"],
+        env={**os.environ, "TRAFFIC_RATE": str(args.rate)},
+        check=True,
+        capture_output=True,
+    )
+    time.sleep(5)
+
+    print(f"Chaos for {args.duration:.0f}s:", flush=True)
+    events = wreak_havoc(args.duration, args.every, random.Random(args.seed))
+    compose("stop", "traffic")
+    for service in VICTIMS:  # whatever is still down comes back up
+        bring_up(service)
+
+    print("Traffic stopped; waiting for the pipeline to drain...", flush=True)
+    drain_s = asyncio.run(wait_until_drained(timeout=300))
+    result = asyncio.run(check())
+    ok = all(
+        result[k] == 0 for k in result if k not in ("requests in log files", "sessions in Postgres")
+    )
+    ok = ok and result["requests in log files"] > 0
+
+    for name, value in result.items():
+        print(f"  {name:<34} {value:,}")
+    write_results(args, events, drain_s, result, ok)
+    print("PASS: nothing lost, nothing counted twice." if ok else "FAIL", flush=True)
+    sys.exit(0 if ok else 1)
+
+
+if __name__ == "__main__":
+    main()

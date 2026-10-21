@@ -6,7 +6,7 @@ request with three detectors, and shows explained alerts on a dashboard.
 
 > **Status:** being built phase by phase. See [ROADMAP.md](ROADMAP.md).
 > Done: **Phase 1 (foundation)**, **Phase 2 (demo shop + traffic + faults)**,
-> **Phase 3 (live pipeline)**.
+> **Phase 3 (live pipeline)**, **Phase 4 (correct under failure)**.
 
 ## Quick start
 
@@ -82,6 +82,32 @@ docker compose exec postgres psql -U logad -d logad -c \
 In a live check, 3,757 requests written by the shop became exactly 3,757
 sessions, each with exactly the right number of events.
 
+## Correct under failure
+
+Any worker can crash at any moment; every line still ends up in exactly one
+session, exactly once.
+
+| Problem | What handles it |
+|---|---|
+| A worker crashes mid-batch | Entries are acked only after their work is done. A restarted worker first finishes its own unfinished entries; entries left by a dead or replaced worker are claimed by another one after 60 s (`XAUTOCLAIM`). |
+| A line is delivered twice (re-sent, re-processed) | Every line has a permanent ID (file + byte offset) from the shipper; the session builder keeps each line once. Saving a session is insert-or-ignore. |
+| Parser output half-written | Adding events and acking the raw line happen in one `MULTI/EXEC` transaction. |
+| Bad or "poison" lines | Unparsable lines, and lines handed out more than 5 times, go to the `dead-letter` stream with the reason. |
+| Logs arrive faster than they can be processed | Ingest answers `429 Too Many Requests` above a backlog limit; the shipper backs off, lines wait in the files. Processed entries are trimmed from Redis. |
+| Pipeline stalls, or a slow worker is overtaken | Sessions follow the logs' own timestamps and only close up to the oldest line not yet fully processed (a watermark), so nothing closes early or times out by mistake. |
+| `docker stop` | Workers finish the current batch and exit; unfinished work stays pending for the next start. |
+
+**Chaos test** ([eval/chaos.py](eval/chaos.py), also run in CI): kills random
+pipeline workers with SIGKILL every few seconds under traffic, sometimes
+replacing a container entirely, then compares every request in the shop's logs
+with the sessions in Postgres. Latest result: [eval/results/chaos.md](eval/results/chaos.md):
+13 kills in 2 minutes, 2,555 requests → 2,555 sessions, 0 missing, 0 extra,
+0 wrong event counts, 0 duplicated lines.
+
+```bash
+python eval/chaos.py --fresh      # ~4 minutes
+```
+
 ## Configuration
 
 Settings come from environment variables (`LOGAD_*`); defaults are in
@@ -96,6 +122,7 @@ src/logad/shipper/  tails the shop's log files, sends new lines to ingest (at le
 src/logad/ingest/   ingest API: POST /ingest -> Redis stream "raw-logs"
 src/logad/parser/   parser workers: raw lines -> events with shared template IDs, 4 shards
 src/logad/sessions/ session builder: events of one request -> one row in Postgres
+eval/               chaos test (and later: evaluations, benchmarks) + their results
 migrations/         database migrations (Alembic); `alembic upgrade head` applies them
 src/shop/           demo shop: services, traffic generator, fault injector
 tests/              pytest tests (integration tests need docker compose up)

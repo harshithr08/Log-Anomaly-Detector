@@ -27,7 +27,7 @@ from logad.common.db import Session, make_engine
 from logad.common.groups import GroupReader, backlog, lag
 from logad.common.shutdown import TRANSIENT_ERRORS, stop_event
 from logad.common.streams import BUILDERS, PARSERS, Keys
-from logad.sessions.assembler import SessionAssembler, to_row
+from logad.sessions.assembler import SessionAssembler, epoch, to_row
 
 GROUP = BUILDERS
 log = logging.getLogger("logad.sessions")
@@ -112,22 +112,43 @@ class SessionBuilder:
         except ValueError:
             return 0.0
 
+    async def _event_time(self, stream: str, entry_id: str) -> float | None:
+        entries = await self.redis.xrange(stream, min=entry_id, max=entry_id)
+        return epoch(entries[0][1]["ts"]) if entries else None
+
     async def upstream_progress(self) -> tuple[bool, float | None]:
-        """(idle, safe): idle means nothing is waiting upstream at all. Otherwise
-        `safe` is the event time of the oldest raw line the parsers haven't
-        finished: every line older than that has already reached the events
-        streams (the shipper sends lines in time order)."""
-        if not await backlog(self.redis, self.keys.raw_logs, PARSERS):
+        """(idle, safe). idle: nothing is waiting anywhere. Otherwise `safe` is
+        the event time before which every line has reached this builder:
+          - the oldest raw line the parsers haven't finished (the shipper sends
+            lines in time order, so all older lines are already events), and
+          - the oldest event held by another builder (e.g. one that died and
+            whose events are not claimed yet)."""
+        busy, candidates = False, []
+
+        if await backlog(self.redis, self.keys.raw_logs, PARSERS):
+            busy = True
+            pending = await self.redis.xpending(self.keys.raw_logs, PARSERS)
+            if pending["pending"]:  # being worked on by some parser
+                oldest = pending["min"]
+                candidates.append(await self._raw_line_time(min=oldest, max=oldest))
+            groups = await self.redis.xinfo_groups(self.keys.raw_logs)
+            info = next((g for g in groups if g["name"] == PARSERS), None)
+            after = f"({info['last-delivered-id']}" if info else "-"
+            candidates.append(await self._raw_line_time(min=after, max="+"))  # not handed out
+
+        for stream in self.streams:
+            summary = await self.redis.xpending(stream, GROUP)
+            for consumer in summary["consumers"] or []:
+                if consumer["name"] == self.consumer or not int(consumer["pending"]):
+                    continue
+                busy = True
+                [oldest] = await self.redis.xpending_range(
+                    stream, GROUP, min="-", max="+", count=1, consumername=consumer["name"]
+                )
+                candidates.append(await self._event_time(stream, oldest["message_id"]))
+
+        if not busy:
             return True, None
-        candidates = []
-        pending = await self.redis.xpending(self.keys.raw_logs, PARSERS)
-        if pending["pending"]:  # being worked on by some parser
-            oldest = pending["min"]
-            candidates.append(await self._raw_line_time(min=oldest, max=oldest))
-        groups = await self.redis.xinfo_groups(self.keys.raw_logs)
-        info = next((g for g in groups if g["name"] == PARSERS), None)
-        after = f"({info['last-delivered-id']}" if info else "-"
-        candidates.append(await self._raw_line_time(min=after, max="+"))  # not handed out yet
         times = [t for t in candidates if t is not None]
         return False, min(times) if times else None
 

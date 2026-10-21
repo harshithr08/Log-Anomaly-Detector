@@ -147,6 +147,28 @@ async def test_slow_parser_is_never_overtaken(pipeline):
     await pipeline.check_sessions()
 
 
+async def test_new_builder_waits_for_events_held_by_a_dead_one(pipeline):
+    """A replaced builder's early events are stuck until claimed; the new builder
+    must not close those sessions from their later events alone."""
+    pipeline.settings = pipeline.realistic_claims.model_copy(
+        update={"builder_batch_size": 30, "session_grace_s": 0.01}
+    )
+    await pipeline.queue_lines()
+    await pipeline.drain(await pipeline.parser("parser"))
+    dead = await pipeline.builder("builder-old")
+    await dead.reader.read(block_ms=20)  # reads the early events... and is gone for good
+
+    survivor = await pipeline.builder("builder-new")
+    await pipeline.drain(survivor)
+    await survivor.save_due(now=float("inf"))  # may only save sessions it fully has
+
+    survivor.reader.claim_idle_ms, survivor.reader.claim_every_s = 0, 0  # time to claim
+    await pipeline.drain(survivor)
+    await survivor.save_due(now=float("inf"))
+    assert survivor.counts["late"] == 0
+    await pipeline.check_sessions()
+
+
 async def test_every_line_delivered_twice(pipeline):
     pipeline.settings = pipeline.realistic_claims  # no early claiming in this test
     await pipeline.queue_lines(copies=2)  # e.g. the shipper re-sent everything
