@@ -37,6 +37,7 @@ Three things the project proves, each with a number from a re-runnable script:
 - [x] Phase 6: Alerts + dashboard
 - [ ] Phase 7: Measure & optimize
 - [ ] Phase 8: Fault evaluation + polish
+- [ ] Phase 9: Public deployment
 - [ ] Bonus: HDFS benchmark
 
 ---
@@ -222,6 +223,14 @@ and the scoring workers use it live.
 - README: architecture diagram, results tables, demo GIF, one-command setup.
 
 **Done when:** anyone can clone, run one command, and reproduce every number in the README.
+
+### Phase 9: Public deployment
+- One small cloud VM (e.g. Oracle Cloud's free tier) running the same `docker compose`.
+- HTTPS with Caddy; the dashboard public, admin endpoints behind a key.
+- Break buttons rate-limited, and faults fix themselves after 2 minutes.
+- Redeploy from GitHub Actions on push to `main`.
+
+**Done when:** a public link shows the live demo, and a push updates it.
 
 ### Bonus: HDFS benchmark
 Run the same detectors on the public [Loghub HDFS](https://github.com/logpai/loghub)
