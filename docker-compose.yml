@@ -1,4 +1,23 @@
+# Settings shared by the four shop services.
+x-shop-service: &shop-service
+  build: .
+  image: logad
+  restart: unless-stopped # also brings a service back after a 'crash' fault
+  volumes:
+    - ./runtime:/app/runtime # logs + ground truth, visible on the host
+  environment:
+    SHOP_SHOP_URL: http://shop:8000
+    SHOP_INVENTORY_URL: http://inventory:8000
+    SHOP_PAYMENT_URL: http://payment:8000
+    SHOP_SHIPPING_URL: http://shipping:8000
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+    interval: 5s
+    timeout: 3s
+    retries: 10
+
 services:
+  # ── infrastructure ──────────────────────────────────────────────────────────
   redis:
     image: redis:7.4-alpine
     # appendonly: write every change to disk, so queued logs survive a restart
@@ -29,6 +48,45 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # ── demo shop (the system being monitored) ──────────────────────────────────
+  shop:
+    <<: *shop-service
+    command: ["uvicorn", "shop.gateway:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    ports:
+      - "8000:8000"
+    depends_on:
+      inventory: { condition: service_healthy }
+      payment: { condition: service_healthy }
+      shipping: { condition: service_healthy }
+
+  inventory:
+    <<: *shop-service
+    command: ["uvicorn", "shop.inventory:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    ports:
+      - "8001:8000"
+
+  payment:
+    <<: *shop-service
+    command: ["uvicorn", "shop.payment:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    ports:
+      - "8002:8000"
+
+  shipping:
+    <<: *shop-service
+    command: ["uvicorn", "shop.shipping:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    ports:
+      - "8003:8000"
+
+  traffic:
+    image: logad
+    restart: unless-stopped
+    command: ["python", "-m", "shop.traffic"]
+    environment:
+      SHOP_SHOP_URL: http://shop:8000
+      TRAFFIC_RATE: ${TRAFFIC_RATE:-10}
+    depends_on:
+      shop: { condition: service_healthy }
 
 volumes:
   redis-data:

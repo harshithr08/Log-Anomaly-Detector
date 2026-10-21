@@ -48,6 +48,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker compose up -d --wait
+      - run: docker compose up -d --wait --build
       - run: docker compose ps
+      - name: Smoke test the shop
+        run: |
+          curl -fsS http://127.0.0.1:8000/products > /dev/null
+          curl -fsS -X POST http://127.0.0.1:8000/checkout -H 'content-type: application/json' \
+            -d '{"items":[{"product_id":"p17","quantity":1}],"card_number":"4242"}' || true
+          sleep 5
+          grep -q "Handling GET /products" runtime/logs/shop.log
+          grep -q "Handling POST /charges" runtime/logs/payment.log
+          wc -l runtime/logs/*.log
+      - if: failure()
+        run: docker compose logs --tail 50
       - run: docker compose down -v

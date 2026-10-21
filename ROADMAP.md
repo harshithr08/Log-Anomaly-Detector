@@ -30,7 +30,7 @@ Three things the project proves, each with a number from a re-runnable script:
 ## Progress
 
 - [x] Phase 1: Foundation
-- [ ] Phase 2: Demo shop + traffic + fault injector
+- [x] Phase 2: Demo shop + traffic + fault injector
 - [ ] Phase 3: Live pipeline
 - [ ] Phase 4: Correct under failure
 - [ ] Phase 5: Models
@@ -206,6 +206,7 @@ already downloaded). Things learned from a first attempt:
 ```
 src/logad/
   common/      # config, Redis + DB clients, shared types
+  shipper/     # tails the shop's log files, sends batches to ingest
   ingest/      # ingest API
   parser/      # Drain3 workers + pattern registry
   sessions/    # session builder
@@ -213,8 +214,7 @@ src/logad/
   scoring/     # scoring workers
   alerts/      # alert manager
   api/         # query API + WebSocket + dashboard
-shop/          # demo services, traffic generator, fault injector
-shipper/       # log file tailer
+src/shop/      # demo services, traffic generator, fault injector
 eval/          # fault evaluation, load tests, HDFS benchmark
 tests/
 migrations/

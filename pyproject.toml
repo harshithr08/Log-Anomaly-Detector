@@ -9,9 +9,12 @@ description = "Live log anomaly detection pipeline"
 requires-python = ">=3.11"
 dependencies = [
     "asyncpg==0.32.0",
+    "fastapi==0.156.3",
+    "httpx==0.28.1",
     "pydantic-settings==2.16.1",
     "redis==8.1.0",
     "sqlalchemy[asyncio]==2.1.5",
+    "uvicorn==0.54.0",
 ]
 
 [project.optional-dependencies]
@@ -37,4 +40,8 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
     "integration: needs Redis and Postgres running (docker compose up -d)",
+]
+filterwarnings = [
+    # Starlette's TestClient nags about a future httpx swap; not our code.
+    "ignore:Using `httpx` with `starlette.testclient`",
 ]
