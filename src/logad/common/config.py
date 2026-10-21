@@ -29,8 +29,12 @@ class Settings(BaseSettings):
     claim_idle_s: float = 60.0
     claim_every_s: float = 5.0
 
+    # ingest: refuse new lines (429) while this many are waiting for the parsers
+    ingest_max_backlog: int = 100_000
+
     # parser
     parser_batch_size: int = 200
+    max_deliveries: int = 5  # a raw line handed out more often goes to the dead-letter stream
 
     # session builder
     builder_index: int = 0  # this builder owns shards where shard % builder_count == index

@@ -27,6 +27,16 @@ def test_oversized_batch_is_rejected(settings):
         assert client.post("/ingest", json={"lines": batch}).status_code == 422
 
 
+def test_backpressure_refuses_when_the_backlog_is_full(settings):
+    settings = settings.model_copy(update={"ingest_max_backlog": 10})
+    batch = [{"source": "shop", "line": "x"}] * 6
+    with TestClient(create_app(settings)) as client:
+        assert client.post("/ingest", json={"lines": batch}).status_code == 200  # 6 waiting
+        refused = client.post("/ingest", json={"lines": batch})  # 6 + 6 > 10
+    assert refused.status_code == 429
+    assert refused.headers["retry-after"] == "1"
+
+
 def test_health(settings):
     with TestClient(create_app(settings)) as client:
         assert client.get("/health").json() == {"status": "ok"}

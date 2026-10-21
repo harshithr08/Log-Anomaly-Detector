@@ -7,6 +7,10 @@ Each line becomes one entry in the raw-logs Redis stream. The response is sent
 only after Redis has stored every line, so a 200 means "safely queued" and the
 shipper may move on.
 
+Backpressure: if too many lines are already waiting for the parsers, the batch
+is refused with 429 Too Many Requests. The shipper backs off and retries; its
+lines wait safely in the log files meanwhile.
+
 Run: uvicorn logad.ingest.app:create_app --factory --port 8100
 """
 
@@ -14,11 +18,13 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis
 
 from logad.common.config import Settings, get_settings
-from logad.common.streams import Keys
+from logad.common.groups import backlog
+from logad.common.streams import PARSERS, Keys
 
 MAX_BATCH_LINES = 5000
 
@@ -52,6 +58,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/ingest")
     async def ingest(batch: Batch):
+        waiting = await backlog(app.state.redis, keys.raw_logs, PARSERS)
+        if waiting + len(batch.lines) > settings.ingest_max_backlog:
+            return JSONResponse(
+                {"detail": f"{waiting} lines waiting, try again shortly"},
+                status_code=429,
+                headers={"Retry-After": "1"},
+            )
         received_at = datetime.now(UTC).isoformat()
         async with app.state.redis.pipeline(transaction=False) as pipe:
             for item in batch.lines:

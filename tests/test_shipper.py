@@ -101,6 +101,19 @@ async def test_backlog_larger_than_a_batch(setup):
     assert got.lines == [f"line{i}" for i in range(1200)]
 
 
+async def test_files_are_merged_in_time_order(setup):
+    """With full batches, no file may run ahead of the others."""
+    _, new_shipper, write, got = setup
+    stamp = "2026-10-21T10:00:{:02d}.000Z"
+    write("inventory.log", "".join(f"{stamp.format(s)} inventory {s}\n" for s in range(0, 40, 2)))
+    write("shop.log", "".join(f"{stamp.format(s)} shop {s}\n" for s in range(1, 40, 2)))
+    shipper = new_shipper(batch_lines=5)
+    while await shipper.ship_once():
+        pass
+    seconds = [int(line.split()[-1]) for line in got.lines]
+    assert seconds == list(range(40))
+
+
 async def test_reads_every_log_file(setup):
     _, new_shipper, write, got = setup
     for service in ("shop", "inventory", "payment"):

@@ -14,6 +14,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 MAX_READ_BYTES = 1024 * 1024
 
@@ -22,6 +23,12 @@ MAX_READ_BYTES = 1024 * 1024
 class Position:
     file_id: tuple[int, int] | None  # (st_dev, st_ino); None = not opened yet
     offset: int = 0
+
+
+class TailLine(NamedTuple):
+    id: str  # permanent: <device>.<file id>.<byte offset>; the same if sent again
+    text: str
+    after: Position  # where to resume once this line has been delivered
 
 
 def file_id(path: Path) -> tuple[int, int] | None:
@@ -33,11 +40,10 @@ def file_id(path: Path) -> tuple[int, int] | None:
 
 
 def _read_complete_lines(
-    path: Path, offset: int, max_lines: int
-) -> tuple[list[tuple[int, str]], int]:
+    path: Path, fid: tuple[int, int], offset: int, max_lines: int
+) -> list[TailLine]:
     """Up to max_lines lines that end with a newline, starting at offset. A
-    half-written last line is left for next time. Returns ([(line offset, line)],
-    offset just after the last line returned)."""
+    half-written last line is left for next time."""
     with path.open("rb") as f:
         f.seek(offset)
         chunk = f.read(MAX_READ_BYTES)
@@ -47,16 +53,11 @@ def _read_complete_lines(
         if newline == -1:
             break
         raw = chunk[end:newline].rstrip(b"\r")
+        start, end = offset + end, newline + 1
         if raw:
-            lines.append((offset + end, raw.decode("utf-8", errors="replace")))
-        end = newline + 1
-    return lines, offset + end
-
-
-def _with_ids(lines: list[tuple[int, str]], fid: tuple[int, int]) -> list[tuple[str, str]]:
-    """Give each line a permanent ID: <device>.<file id>.<byte offset>. A line
-    that is sent again (after a crash or a failed send) keeps the same ID."""
-    return [(f"{fid[0]}.{fid[1]}.{at}", text) for at, text in lines]
+            text = raw.decode("utf-8", errors="replace")
+            lines.append(TailLine(f"{fid[0]}.{fid[1]}.{start}", text, Position(fid, offset + end)))
+    return lines
 
 
 class FileTailer:
@@ -64,30 +65,28 @@ class FileTailer:
         self.path = path
         self.position = position or Position(file_id=None)
 
-    def read(self, max_lines: int = 10_000) -> tuple[list[tuple[str, str]], Position]:
-        """New complete lines as (line ID, line), and the position to commit once
-        they are delivered."""
+    def read(self, max_lines: int = 10_000) -> list[TailLine]:
+        """New complete lines. Nothing is committed here: after delivering some
+        of them, commit the `after` position of the last one delivered."""
         current_id = file_id(self.path)
         if current_id is None:
-            return [], self.position
+            return []
         pos = self.position
 
         if pos.file_id is not None and pos.file_id != current_id:
             # Rotated: finish the old file first (it was renamed to <name>.1).
             rotated = self.path.with_name(self.path.name + ".1")
             if file_id(rotated) == pos.file_id:
-                lines, offset = _read_complete_lines(rotated, pos.offset, max_lines)
+                lines = _read_complete_lines(rotated, pos.file_id, pos.offset, max_lines)
                 if lines:
-                    return _with_ids(lines, pos.file_id), Position(pos.file_id, offset)
+                    return lines
             pos = Position(current_id, 0)  # old file done (or gone): start the new one
 
         if pos.file_id is None:
             pos = Position(current_id, 0)
         if self.path.stat().st_size < pos.offset:  # truncated in place
             pos = Position(current_id, 0)
-
-        lines, offset = _read_complete_lines(self.path, pos.offset, max_lines)
-        return _with_ids(lines, current_id), Position(current_id, offset)
+        return _read_complete_lines(self.path, current_id, pos.offset, max_lines)
 
     def commit(self, position: Position) -> None:
         self.position = position

@@ -11,6 +11,11 @@ sure someone finishes it:
     3. otherwise: new entries
 
 Entries can therefore be processed more than once; consumers must be idempotent.
+Recovered entries carry how many times they were handed out, so a consumer can
+spot a "poison" entry that keeps crashing workers.
+
+Every few seconds the reader also trims the stream: entries that every consumer
+has finished are deleted, so streams don't grow forever.
 """
 
 import time
@@ -25,6 +30,7 @@ class Entry:
     stream: str
     entry_id: str
     fields: dict
+    deliveries: int = 1  # how many times this entry has been handed to a consumer
 
 
 async def ensure_group(redis: Redis, stream: str, group: str) -> None:
@@ -33,6 +39,34 @@ async def ensure_group(redis: Redis, stream: str, group: str) -> None:
     except ResponseError as error:
         if "BUSYGROUP" not in str(error):  # the group already exists: fine
             raise
+
+
+async def trim_finished(redis: Redis, stream: str, group: str) -> int:
+    """Delete entries every consumer has finished: older than the oldest pending
+    entry, or than the last one handed out if nothing is pending."""
+    groups = await redis.xinfo_groups(stream)
+    info = next((g for g in groups if g["name"] == group), None)
+    if info is None or info["last-delivered-id"] == "0-0":
+        return 0
+    pending = await redis.xpending(stream, group)
+    keep_from = pending["min"] if pending["pending"] else info["last-delivered-id"]
+    return await redis.xtrim(stream, minid=keep_from, approximate=False)
+
+
+async def backlog(redis: Redis, stream: str, group: str) -> int:
+    """Entries waiting for this group: not yet handed out, plus handed out but unfinished."""
+    groups = await redis.xinfo_groups(stream) if await redis.exists(stream) else []
+    info = next((g for g in groups if g["name"] == group), None)
+    if info is None:
+        return await redis.xlen(stream)
+    return (info["lag"] or 0) + info["pending"]
+
+
+async def lag(redis: Redis, stream: str, group: str) -> int:
+    """Entries not yet handed out to any consumer of this group."""
+    groups = await redis.xinfo_groups(stream) if await redis.exists(stream) else []
+    info = next((g for g in groups if g["name"] == group), None)
+    return await redis.xlen(stream) if info is None else (info["lag"] or 0)
 
 
 class GroupReader:
@@ -53,9 +87,14 @@ class GroupReader:
         self.count = count
         self.claim_idle_ms = int(claim_idle_s * 1000)
         self.claim_every_s = claim_every_s
-        self._own_cursor = {stream: "0" for stream in streams}  # paging through own pending
         self._last_claim = time.monotonic()
         self.recovered = 0  # entries finished on behalf of a crashed consumer (incl. self)
+        self.retry_pending()
+
+    def retry_pending(self) -> None:
+        """Read this consumer's own pending entries again (after a restart, or
+        after an error left a batch unfinished)."""
+        self._own_cursor = {stream: "0" for stream in self.streams}
 
     async def setup(self) -> None:
         for stream in self.streams:
@@ -68,6 +107,8 @@ class GroupReader:
                 return entries
         if time.monotonic() - self._last_claim >= self.claim_every_s:
             self._last_claim = time.monotonic()
+            for stream in self.streams:
+                await trim_finished(self.redis, stream, self.group)
             entries = await self._claim_stale()
             if entries:
                 return entries
@@ -81,22 +122,21 @@ class GroupReader:
         return [Entry(s, eid, f) for s, entries in response or [] for eid, f in entries]
 
     async def _read_own_pending(self) -> list[Entry]:
-        """Entries this consumer read before a restart but never acked."""
+        """Entries this consumer read earlier but never acked."""
         response = await self.redis.xreadgroup(
             self.group, self.consumer, dict(self._own_cursor), count=self.count
         )
         found = []
+        returned = {stream for stream, _ in response or []}
         for stream, entries in response or []:
             if not entries:
                 self._own_cursor.pop(stream, None)  # nothing left on this stream
                 continue
             self._own_cursor[stream] = entries[-1][0]
             found += [Entry(stream, eid, f) for eid, f in entries]
-        for stream in [s for s in self._own_cursor if s not in {r[0] for r in response or []}]:
+        for stream in [s for s in self._own_cursor if s not in returned]:
             self._own_cursor.pop(stream)
-        found = await self._ack_deleted(found)
-        self.recovered += len(found)
-        return found
+        return await self._recovered(found)
 
     async def _claim_stale(self) -> list[Entry]:
         """Take over entries that have been pending too long at any consumer."""
@@ -108,13 +148,19 @@ class GroupReader:
             if deleted:
                 await self.redis.xack(stream, self.group, *deleted)
             claimed += [Entry(stream, eid, f) for eid, f in entries]
-        claimed = await self._ack_deleted(claimed)
-        self.recovered += len(claimed)
-        return claimed
+        return await self._recovered(claimed)
 
-    async def _ack_deleted(self, entries: list[Entry]) -> list[Entry]:
-        """Entries trimmed from the stream come back without fields: just ack them."""
+    async def _recovered(self, entries: list[Entry]) -> list[Entry]:
+        """Ack entries that were trimmed away (they come back without fields) and
+        look up how often the others have been handed out."""
         for entry in entries:
             if not entry.fields:
                 await self.redis.xack(entry.stream, self.group, entry.entry_id)
-        return [entry for entry in entries if entry.fields]
+        entries = [entry for entry in entries if entry.fields]
+        for entry in entries:
+            info = await self.redis.xpending_range(
+                entry.stream, self.group, min=entry.entry_id, max=entry.entry_id, count=1
+            )
+            entry.deliveries = info[0]["times_delivered"] if info else 1
+        self.recovered += len(entries)
+        return entries

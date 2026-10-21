@@ -15,9 +15,11 @@ Usage:
     python -m logad.parser
 """
 
+import asyncio
 import json
 import logging
 import zlib
+from datetime import UTC, datetime
 
 from redis.asyncio import Redis
 from sqlalchemy.dialects.postgresql import insert
@@ -26,11 +28,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from logad.common.config import Settings, get_settings
 from logad.common.db import Template, make_engine
 from logad.common.groups import GroupReader
-from logad.common.streams import Keys
+from logad.common.shutdown import TRANSIENT_ERRORS, stop_event
+from logad.common.streams import PARSERS, Keys
 from logad.parser.parse import TemplateFinder, parse_line
 from logad.parser.registry import PatternRegistry
 
-GROUP = "parsers"
+GROUP = PARSERS
 log = logging.getLogger("logad.parser")
 
 
@@ -57,7 +60,7 @@ class ParserWorker:
         self.finder = TemplateFinder()
         self.registry = PatternRegistry(redis, self.keys)
         self._saved_templates: set[int] = set()
-        self.unparsable = 0
+        self.dead_lettered = 0
 
     async def setup(self) -> None:
         await self.reader.setup()
@@ -69,12 +72,17 @@ class ParserWorker:
             return 0
 
         events = []  # (shard, fields)
+        dead = []  # (fields, reason)
         for entry in entries:
             fields = entry.fields
+            if entry.deliveries > self.settings.max_deliveries:
+                # handed out again and again without being finished: it probably
+                # crashes whoever processes it, so set it aside
+                dead.append((fields, f"poison: delivered {entry.deliveries} times"))
+                continue
             parsed = parse_line(fields["line"])
             if parsed is None:
-                self.unparsable += 1
-                log.warning("Unparsable line from %s: %.200s", fields["source"], fields["line"])
+                dead.append((fields, "unparsable"))
                 continue
             template = self.finder.template(parsed)
             template_id, created = await self.registry.id_for(template)
@@ -100,11 +108,19 @@ class ParserWorker:
                 )
             )
 
+        failed_at = datetime.now(UTC).isoformat()
         async with self.redis.pipeline(transaction=True) as tx:  # MULTI ... EXEC
             for shard, fields in events:
                 tx.xadd(self.keys.events(shard), fields)
+            for fields, reason in dead:
+                tx.xadd(self.keys.dead_letter, {**fields, "reason": reason, "failed_at": failed_at})
             tx.xack(self.keys.raw_logs, GROUP, *[entry.entry_id for entry in entries])
             await tx.execute()
+        for fields, reason in dead:
+            log.warning(
+                "Dead-lettered (%s) from %s: %.200s", reason, fields["source"], fields["line"]
+            )
+        self.dead_lettered += len(dead)
         return len(entries)
 
     async def _save_template(self, template_id: int, template: str) -> None:
@@ -123,9 +139,21 @@ async def run() -> None:
     worker = ParserWorker(redis, engine, settings, settings.consumer_name)
     await worker.setup()
     log.info("Parser %s reading %s", worker.consumer, worker.keys.raw_logs)
+    stop = stop_event()
+    backoff = 0.5
     try:
-        while True:
-            await worker.process_batch()
+        while not stop.is_set():
+            try:
+                await worker.process_batch()
+                backoff = 0.5
+            except TRANSIENT_ERRORS as error:
+                # Redis or Postgres is briefly unreachable: the batch stays pending,
+                # so wait, then read our own pending entries again.
+                log.warning("Batch failed (%r), retrying in %.1fs", error, backoff)
+                worker.reader.retry_pending()
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 10)
     finally:
+        log.info("Parser %s stopping", worker.consumer)
         await redis.aclose()
         await engine.dispose()

@@ -31,7 +31,8 @@ class Pipeline:
         self.redis = Redis.from_url(self.settings.redis_url, decode_responses=True)
         self.engine = make_engine(database_url)
         shop.send_traffic(requests)
-        self.lines = shop.all_log_lines()
+        # in time order across services, as the shipper sends them
+        self.lines = sorted(shop.all_log_lines(), key=lambda line: line[:24])
         self.expected = Counter(REQUEST_ID.search(line)[1] for line in self.lines)
         del self.expected["-"]
 
@@ -120,6 +121,29 @@ async def test_builder_dies_after_saving_before_acking(pipeline):
     survivor = await pipeline.builder("builder-a")
     await pipeline.drain(survivor)
     await survivor.save_due(now=float("inf"))  # same sessions again: inserts are ignored
+    await pipeline.check_sessions()
+
+
+async def test_slow_parser_is_never_overtaken(pipeline):
+    """Parser A holds an early batch while parser B races through the later
+    lines. The builder must not close sessions still missing A's lines."""
+    # small batches; tiny grace so sessions would close early if time ran ahead
+    pipeline.settings = pipeline.realistic_claims.model_copy(
+        update={"parser_batch_size": 25, "session_grace_s": 0.01}
+    )
+    await pipeline.queue_lines()
+    slow = await pipeline.parser("parser-a")
+    await slow.reader.read(block_ms=20)  # takes the first 25 lines... and is slow
+    await pipeline.drain(await pipeline.parser("parser-b"))  # everything else
+
+    builder = await pipeline.builder("builder")
+    await pipeline.drain(builder)
+    await builder.save_due(now=float("inf"))  # may only save what is complete
+
+    await pipeline.drain(await pipeline.parser("parser-a"))  # A finally finishes
+    await pipeline.drain(builder)
+    await builder.save_due(now=float("inf"))
+    assert builder.counts["late"] == 0
     await pipeline.check_sessions()
 
 

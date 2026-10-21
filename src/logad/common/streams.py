@@ -7,6 +7,10 @@ prefix and never touch real data.
 
 from dataclasses import dataclass
 
+# Consumer groups
+PARSERS = "parsers"  # read raw-logs
+BUILDERS = "builders"  # read the events shards
+
 
 @dataclass(frozen=True)
 class Keys:
@@ -16,6 +20,11 @@ class Keys:
     def raw_logs(self) -> str:
         """Stream: raw lines from the ingest API."""
         return f"{self.prefix}:raw-logs"
+
+    @property
+    def dead_letter(self) -> str:
+        """Stream: lines that could not be processed, with the reason."""
+        return f"{self.prefix}:dead-letter"
 
     def events(self, shard: int) -> str:
         """Stream: parsed events, one stream per shard (shard = hash of the request ID)."""
