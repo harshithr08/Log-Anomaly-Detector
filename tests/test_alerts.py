@@ -68,6 +68,16 @@ def test_open_alert_resolves_after_a_quiet_minute_and_keeps_its_summary():
     assert aged_out.resolve and aged_out.summary is None  # keep the saved summary
 
 
+def test_a_trickle_of_false_alarms_does_not_keep_an_alert_open():
+    """After the incident, normal traffic still has a stray flag every ~20 s."""
+    incident = flagged(10, at=1000)
+    trickle = [e for t in range(1030, 1300, 20) for e in flagged(1, at=t, prefix=f"n{t}-")]
+    open_alerts = {"payment": OpenAlert("payment", 1000, alert_id=7)}
+    [alert] = decide(incident + trickle, open_alerts, now=1300)
+    assert alert.resolve  # below alert level since ~1009, although evidence kept coming
+    assert alert.last_seen_at == 1290
+
+
 async def _seed(database_url, at: datetime, burst: str):
     engine = make_engine(database_url)
     async with engine.begin() as conn:

@@ -12,7 +12,9 @@ Rules, per service:
              A single flagged request is not an alert: with 1 in 1,000 normal
              requests flagged, that would fire every few minutes.
     update   while open: count, detectors, summary and examples follow the evidence
-    resolve  no new evidence for `quiet_s`
+    resolve  evidence has been below the opening level for `quiet_s`. Not "no
+             evidence at all": normal traffic always has a trickle of false
+             alarms, which would otherwise keep an alert open forever.
 """
 
 from collections import Counter
@@ -104,6 +106,22 @@ def summarize(service: str, evidence: list[Evidence]) -> str:
     return f"{service}: " + "; ".join(parts)
 
 
+def last_hot(evidence: list[Evidence], min_sessions: int, window_s: float) -> float | None:
+    """The latest moment the evidence was at alert level: a rate anomaly, or at
+    least `min_sessions` flagged requests within the preceding `window_s`."""
+    hot = None
+    for i, e in enumerate(evidence):  # sorted by time
+        if e.detector == "rate":
+            hot = e.at
+            continue
+        recent = {
+            x.session_id for x in evidence[: i + 1] if x.session_id and x.at >= e.at - window_s
+        }
+        if len(recent) >= min_sessions:
+            hot = e.at
+    return hot
+
+
 def decide(
     evidence: list[Evidence],
     open_alerts: dict[str, OpenAlert],
@@ -140,6 +158,7 @@ def decide(
                 )
             continue
         last_seen = incident[-1].at
+        hot = last_hot(incident, min_sessions, window_s) or opened_at
         sessions = {e.session_id for e in incident if e.session_id}
         examples, seen = [], set()
         for e in reversed(incident):  # newest first, one per session
@@ -161,7 +180,7 @@ def decide(
                 detectors=sorted({e.detector for e in incident}),
                 summary=summarize(service, incident),
                 examples=examples,
-                resolve=alert is not None and now - last_seen >= quiet_s,
+                resolve=alert is not None and now - hot >= quiet_s,
                 alert_id=alert.alert_id if alert else None,
             )
         )
