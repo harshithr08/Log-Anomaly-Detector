@@ -12,8 +12,10 @@ Usage:
 
 import argparse
 import asyncio
+import contextlib
 import os
 import random
+import signal
 import time
 from collections import Counter
 
@@ -87,8 +89,15 @@ async def run(url: str, rate: float, duration: float, seed: int | None = None):
     started = last_report = time.monotonic()
     print(f"Sending ~{rate}/s to {url}" + (f" for {duration}s" if duration else ""), flush=True)
 
+    # Stop cleanly on `docker stop`: as process 1 in a container, Python would
+    # otherwise ignore SIGTERM until Docker gives up and kills it.
+    stop = asyncio.Event()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        with contextlib.suppress(NotImplementedError):  # not available on Windows
+            asyncio.get_running_loop().add_signal_handler(sig, stop.set)
+
     async with httpx.AsyncClient(base_url=url, timeout=10) as client:
-        while not duration or time.monotonic() - started < duration:
+        while not stop.is_set() and (not duration or time.monotonic() - started < duration):
             await asyncio.sleep(rng.expovariate(rate))
             await in_flight.acquire()  # never more than MAX_IN_FLIGHT at once
             task = asyncio.create_task(send(client, rng, stats, in_flight))

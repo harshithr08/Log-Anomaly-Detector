@@ -62,6 +62,17 @@ async def backlog(redis: Redis, stream: str, group: str) -> int:
     return (info["lag"] or 0) + info["pending"]
 
 
+async def forget_departed(redis: Redis, stream: str, group: str, idle_s: float = 3600) -> int:
+    """Remove consumers that hold no entries and have been silent for a long
+    time (containers that were replaced), so the group's list stays short."""
+    removed = 0
+    for consumer in await redis.xinfo_consumers(stream, group):
+        if consumer["pending"] == 0 and consumer["idle"] > idle_s * 1000:
+            await redis.xgroup_delconsumer(stream, group, consumer["name"])
+            removed += 1
+    return removed
+
+
 async def lag(redis: Redis, stream: str, group: str) -> int:
     """Entries not yet handed out to any consumer of this group."""
     groups = await redis.xinfo_groups(stream) if await redis.exists(stream) else []
@@ -109,6 +120,7 @@ class GroupReader:
             self._last_claim = time.monotonic()
             for stream in self.streams:
                 await trim_finished(self.redis, stream, self.group)
+                await forget_departed(self.redis, stream, self.group)
             entries = await self._claim_stale()
             if entries:
                 return entries

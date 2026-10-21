@@ -5,7 +5,7 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 
 from logad.common.db import Template, make_engine
-from logad.common.groups import trim_finished
+from logad.common.groups import forget_departed, trim_finished
 from logad.common.streams import Keys
 from logad.parser.worker import GROUP, ParserWorker
 
@@ -98,6 +98,17 @@ async def test_poison_line_is_set_aside(settings, database_url):
     assert (await redis.xpending(keys.raw_logs, GROUP))["pending"] == 0
     await redis.aclose()
     await engine.dispose()
+
+
+async def test_departed_consumers_are_forgotten(settings):
+    keys = Keys(settings.stream_prefix)
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    await redis.xgroup_create(keys.raw_logs, GROUP, id="0", mkstream=True)
+    await redis.xreadgroup(GROUP, "replaced-container", {keys.raw_logs: ">"})  # registers it
+    assert await forget_departed(redis, keys.raw_logs, GROUP, idle_s=3600) == 0  # still recent
+    assert await forget_departed(redis, keys.raw_logs, GROUP, idle_s=0) == 1
+    assert await redis.xinfo_consumers(keys.raw_logs, GROUP) == []
+    await redis.aclose()
 
 
 async def test_processed_lines_are_trimmed(settings, database_url, shop):
