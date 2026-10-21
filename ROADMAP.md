@@ -118,8 +118,37 @@ Every alert says **which detector fired and why**.
 
 ## Phases
 
-Every phase ends the same way: **run it, check it works, commit, push.**
-Tests are written inside each phase, not at the end.
+**One commit per working step**: each commit adds one piece, with its tests,
+and leaves the project working (CI green). Every phase ends with a full check
+and a push. Tests are written inside each phase, not at the end.
+
+### Commit plan
+
+| # | Phase | Commit |
+|---|---|---|
+| 1 | — | Project roadmap ✅ |
+| 2 | 1 | Foundation: package, config, Redis + Postgres, CI ✅ |
+| 3 | 2 | Demo shop, traffic generator, fault injector ✅ |
+| 4 | 3 | Database schema + migrations (Alembic) |
+| 5 | 3 | Shipper: tail log files, send batches |
+| 6 | 3 | Ingest API → `raw-logs` stream |
+| 7 | 3 | Parser workers: Drain3 + shared pattern registry |
+| 8 | 3 | Session builder → sessions in Postgres |
+| 9 | 4 | Ack after processing, reclaim from dead workers, idempotent writes |
+| 10 | 4 | Dead-letter stream, backpressure (429), graceful shutdown |
+| 11 | 4 | Chaos test: kill workers, prove 0 lost / 0 duplicated |
+| 12 | 5 | Dataset builder + baselines |
+| 13 | 5 | LSTM + Isolation Forest training, threshold calibration, versioned models |
+| 14 | 5 | ONNX export + scoring workers |
+| 15 | 5 | Rate detector |
+| 16 | 6 | Alert manager: group, explain, auto-resolve |
+| 17 | 6 | Query API + WebSocket |
+| 18 | 6 | Dashboard with Break/Fix buttons |
+| 19 | 7 | Load test + benchmark script |
+| 20 | 7 | Optimize the bottleneck (batching, bulk inserts, ONNX) |
+| 21 | 8 | Fault evaluation + ablation |
+| 22 | 8 | Drift re-calibration, health checks, auth, structured logs |
+| 23 | 8 | Final README: diagram, results, demo GIF |
 
 ### Phase 1: Foundation
 - Package layout, config from environment variables (`pydantic-settings`), `.env.example`.
