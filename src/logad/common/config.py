@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     session_end_service: str = "shop"  # the last line of a request is this service's
     session_end_prefix: str = "Completed "  # ... line starting with this
 
+    # alert manager
+    alert_min_sessions: int = 5  # flagged requests of one service ...
+    alert_window_s: float = 60.0  # ... within this long open an alert
+    alert_quiet_s: float = 60.0  # resolve after this long without new evidence
+    alert_every_s: float = 2.0
+
     # rate detector
     rate_window_s: float = 10.0
 

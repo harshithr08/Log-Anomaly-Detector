@@ -116,6 +116,13 @@ services:
       redis: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
 
+  alerts:
+    <<: *pipeline
+    command: ["python", "-m", "logad.alerts"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
   scoring:
     <<: *pipeline
     command: ["python", "-m", "logad.scoring"]

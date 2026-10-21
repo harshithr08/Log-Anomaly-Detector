@@ -6,7 +6,7 @@ Tables are created by Alembic migrations (migrations/), never by the app.
 
 from datetime import datetime
 
-from sqlalchemy import ARRAY, Boolean, DateTime, Float, Index, Integer, Text, func
+from sqlalchemy import ARRAY, Boolean, DateTime, Float, Index, Integer, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -77,6 +77,38 @@ class RateAnomalyRow(Base):
     direction: Mapped[str] = mapped_column(Text)  # "spike" or "drop"
     detected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class Alert(Base):
+    """One incident on one service: many flagged requests and rate anomalies
+    grouped together. At most one open alert per service (a partial unique
+    index), so duplicates are impossible even if the manager restarts."""
+
+    __tablename__ = "alerts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    service: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)  # "open" or "resolved"
+    opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))  # first evidence
+    raised_at: Mapped[datetime] = mapped_column(  # when the alert was actually raised
+        DateTime(timezone=True), server_default=func.now()
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sessions: Mapped[int] = mapped_column(Integer)  # flagged requests in the incident
+    detectors: Mapped[list[str]] = mapped_column(ARRAY(Text))
+    summary: Mapped[str] = mapped_column(Text)
+    examples: Mapped[list[dict]] = mapped_column(JSONB)  # a few flagged requests and why
+
+    __table_args__ = (
+        Index(
+            "uq_alerts_one_open_per_service",
+            "service",
+            unique=True,
+            postgresql_where=text("status = 'open'"),
+        ),
+        Index("ix_alerts_opened_at", "opened_at"),
     )
 
 
