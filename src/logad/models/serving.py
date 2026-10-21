@@ -64,6 +64,8 @@ class ServingModels:
         lstm_scores, worst_step = surprise_per_session(log_probs, y, owners, len(sessions))
         z = self.scaler.transform(sessions)
         timing_scores = np.linalg.norm(z, axis=1)
+        # where each session's windows begin, to map a window back to its event
+        first_window = np.searchsorted(owners, np.arange(len(sessions)))
 
         verdicts = []
         for i, session in enumerate(sessions):
@@ -72,10 +74,15 @@ class ServingModels:
             explanation = {}
             if lstm_flag:
                 step = worst_step[i]
+                # The k-th window of a session predicts event k (k == n: the end).
+                # Use the session's real text: an event type the model never saw
+                # is "<unknown>" in its vocabulary, which says nothing.
+                path = ["<start>", *session.templates, "<end>"]
+                k = int(step - first_window[i])
                 explanation["lstm"] = {
-                    "after": self.vocab.templates[x[step][-1]],
+                    "after": path[k],
                     "expected": self.vocab.templates[int(np.argmax(log_probs[step]))],
-                    "got": self.vocab.templates[y[step]],
+                    "got": path[k + 1],
                     "probability": float(np.exp(log_probs[step][y[step]])),
                 }
             if timing_flag:

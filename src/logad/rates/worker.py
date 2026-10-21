@@ -44,6 +44,7 @@ class RateWorker:
             count=settings.builder_batch_size,
             claim_idle_s=settings.claim_idle_s,
             claim_every_s=settings.claim_every_s,
+            exclusive=True,  # one rate detector: any other consumer here is gone
         )
         self.counter = RateCounter(window_s=settings.rate_window_s)
         self.found = 0

@@ -99,7 +99,12 @@ class GroupReader:
         count: int,
         claim_idle_s: float,
         claim_every_s: float = 5.0,
+        exclusive: bool = False,
     ):
+        """exclusive=True: this is the only live consumer of these streams in the
+        group (e.g. a session builder owns its shards). Any other consumer there
+        is a previous incarnation that is gone, so its pending work is taken
+        over at startup instead of after claim_idle_s."""
         self.redis = redis
         self.streams = streams
         self.group = group
@@ -107,6 +112,7 @@ class GroupReader:
         self.count = count
         self.claim_idle_ms = int(claim_idle_s * 1000)
         self.claim_every_s = claim_every_s
+        self.exclusive = exclusive
         self._last_claim = time.monotonic()
         self.recovered = 0  # entries finished on behalf of a crashed consumer (incl. self)
         self.retry_pending()
@@ -119,6 +125,22 @@ class GroupReader:
     async def setup(self) -> None:
         for stream in self.streams:
             await ensure_group(self.redis, stream, self.group)
+            if self.exclusive:
+                await self._take_over(stream)
+
+    async def _take_over(self, stream: str) -> None:
+        """Make every pending entry of the stream ours; they are then read as our
+        own pending entries. JUSTID: doesn't count as a delivery (poison check)."""
+        start = "0-0"
+        while True:
+            # raw command: redis-py drops the "next start" part of the reply with JUSTID
+            reply = await self.redis.execute_command(
+                "XAUTOCLAIM", stream, self.group, self.consumer, 0, start, "COUNT", 1000, "JUSTID"
+            )
+            start = reply[0].decode() if isinstance(reply[0], bytes) else reply[0]
+            if start == "0-0":
+                break
+        self.retry_pending()
 
     async def read(self, block_ms: int) -> list[Entry]:
         if self._own_cursor:

@@ -47,7 +47,14 @@ def decode_event(entry_id: str, fields: dict) -> dict:
 
 
 class SessionBuilder:
-    def __init__(self, redis: Redis, engine: AsyncEngine, settings: Settings, consumer: str):
+    def __init__(
+        self,
+        redis: Redis,
+        engine: AsyncEngine,
+        settings: Settings,
+        consumer: str,
+        exclusive: bool = True,
+    ):
         self.redis = redis
         self.engine = engine
         self.settings = settings
@@ -72,6 +79,7 @@ class SessionBuilder:
             count=settings.builder_batch_size,
             claim_idle_s=settings.claim_idle_s,
             claim_every_s=settings.claim_every_s,
+            exclusive=exclusive,  # each builder owns its shards: others there are gone
         )
         self.counts = {"late": 0, "duplicate": 0}
 

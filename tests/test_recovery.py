@@ -47,8 +47,8 @@ class Pipeline:
         await worker.setup()
         return worker
 
-    async def builder(self, name):
-        builder = SessionBuilder(self.redis, self.engine, self.settings, name)
+    async def builder(self, name, exclusive=True):
+        builder = SessionBuilder(self.redis, self.engine, self.settings, name, exclusive)
         await builder.setup()
         return builder
 
@@ -158,7 +158,8 @@ async def test_new_builder_waits_for_events_held_by_a_dead_one(pipeline):
     dead = await pipeline.builder("builder-old")
     await dead.reader.read(block_ms=20)  # reads the early events... and is gone for good
 
-    survivor = await pipeline.builder("builder-new")
+    # not exclusive: as if the old builder might still be alive (e.g. while scaling)
+    survivor = await pipeline.builder("builder-new", exclusive=False)
     await pipeline.drain(survivor)
     await survivor.save_due(now=float("inf"))  # may only save sessions it fully has
 
@@ -166,6 +167,22 @@ async def test_new_builder_waits_for_events_held_by_a_dead_one(pipeline):
     await pipeline.drain(survivor)
     await survivor.save_due(now=float("inf"))
     assert survivor.counts["late"] == 0
+    await pipeline.check_sessions()
+
+
+async def test_replaced_builder_takes_over_at_once(pipeline):
+    """With realistic settings (claim after 60 s) a replacement builder still
+    finishes everything right away: it owns its shards, so the previous
+    builder's pending work is taken over at startup."""
+    pipeline.settings = pipeline.realistic_claims
+    await pipeline.queue_lines()
+    await pipeline.drain(await pipeline.parser("parser"))
+    await pipeline.drain(await pipeline.builder("builder-old"))  # open sessions... gone
+
+    replacement = await pipeline.builder("builder-replacement")
+    await pipeline.drain(replacement)
+    await replacement.save_due(now=float("inf"))
+    assert replacement.counts["late"] == 0
     await pipeline.check_sessions()
 
 

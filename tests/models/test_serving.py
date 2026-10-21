@@ -42,5 +42,9 @@ def test_verdicts_flag_and_explain(tmp_path):
     normal, skip, slow = served.score([request(HIT, shop_ms=2), skipped, slow])
 
     assert not normal.anomalous and normal.explanation == {}
+    [new_error] = served.score(
+        [request(["shop Handling GET /p", "shipping ERROR Printer on fire"], shop_ms=2)]
+    )
+    assert new_error.explanation["lstm"]["got"] == "shipping ERROR Printer on fire"  # not <unknown>
     assert skip.lstm_flag and skip.explanation["lstm"]["got"] == "shop Completed"
     assert slow.timing_flag and slow.explanation["timing"]["slowest"] == "shop"
