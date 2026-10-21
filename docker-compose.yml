@@ -123,6 +123,27 @@ services:
       postgres: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
 
+  api: # query API + WebSocket + dashboard: http://localhost:8200
+    <<: *pipeline
+    command: ["uvicorn", "logad.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    ports:
+      - "8200:8000"
+    environment:
+      <<: *pipeline-env
+      SHOP_SHOP_URL: http://shop:8000
+      SHOP_INVENTORY_URL: http://inventory:8000
+      SHOP_PAYMENT_URL: http://payment:8000
+      SHOP_SHIPPING_URL: http://shipping:8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
   scoring:
     <<: *pipeline
     command: ["python", "-m", "logad.scoring"]
