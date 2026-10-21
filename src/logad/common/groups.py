@@ -67,7 +67,7 @@ async def forget_departed(redis: Redis, stream: str, group: str, idle_s: float =
     time (containers that were replaced), so the group's list stays short."""
     removed = 0
     for consumer in await redis.xinfo_consumers(stream, group):
-        if consumer["pending"] == 0 and consumer["idle"] > idle_s * 1000:
+        if consumer["pending"] == 0 and consumer["idle"] >= idle_s * 1000:
             await redis.xgroup_delconsumer(stream, group, consumer["name"])
             removed += 1
     return removed
