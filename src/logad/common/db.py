@@ -63,5 +63,22 @@ class Score(Base):
     __table_args__ = (Index("ix_scores_scored_at", "scored_at"),)
 
 
+class RateAnomalyRow(Base):
+    """An event type that happened far more (spike) or far less (drop) often than
+    usual in one time window. One row per (window, event type)."""
+
+    __tablename__ = "rate_anomalies"
+
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    template_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    count: Mapped[int] = mapped_column(Integer)
+    expected: Mapped[float] = mapped_column(Float)
+    z: Mapped[float] = mapped_column(Float)
+    direction: Mapped[str] = mapped_column(Text)  # "spike" or "drop"
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 def make_engine(url: str) -> AsyncEngine:
     return create_async_engine(url, pool_pre_ping=True)

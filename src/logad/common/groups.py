@@ -41,16 +41,25 @@ async def ensure_group(redis: Redis, stream: str, group: str) -> None:
             raise
 
 
+def _id_key(entry_id: str) -> tuple[int, int]:
+    millis, _, seq = entry_id.partition("-")
+    return int(millis), int(seq or 0)
+
+
 async def trim_finished(redis: Redis, stream: str, group: str) -> int:
-    """Delete entries every consumer has finished: older than the oldest pending
-    entry, or than the last one handed out if nothing is pending."""
-    groups = await redis.xinfo_groups(stream)
-    info = next((g for g in groups if g["name"] == group), None)
-    if info is None or info["last-delivered-id"] == "0-0":
+    """Delete entries that EVERY consumer group on the stream has finished (a
+    stream can feed several groups, e.g. the session builder and the rate
+    detector): for each group, everything older than its oldest pending entry,
+    or than the last entry it was handed if nothing is pending."""
+    keep = []
+    for info in await redis.xinfo_groups(stream):
+        if info["last-delivered-id"] == "0-0":
+            return 0  # this group hasn't read anything yet: keep everything
+        pending = await redis.xpending(stream, info["name"])
+        keep.append(pending["min"] if pending["pending"] else info["last-delivered-id"])
+    if not keep:
         return 0
-    pending = await redis.xpending(stream, group)
-    keep_from = pending["min"] if pending["pending"] else info["last-delivered-id"]
-    return await redis.xtrim(stream, minid=keep_from, approximate=False)
+    return await redis.xtrim(stream, minid=min(keep, key=_id_key), approximate=False)
 
 
 async def backlog(redis: Redis, stream: str, group: str) -> int:

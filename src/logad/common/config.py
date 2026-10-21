@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     session_end_service: str = "shop"  # the last line of a request is this service's
     session_end_prefix: str = "Completed "  # ... line starting with this
 
+    # rate detector
+    rate_window_s: float = 10.0
+
     # scoring
     models_dir: Path = Path("models")  # holds <version>/ folders and a "latest" file
     scoring_batch_size: int = 200

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 PARSERS = "parsers"  # read raw-logs
 BUILDERS = "builders"  # read the events shards
 SCORERS = "scorers"  # read the sessions stream
+RATES = "rates"  # read the events shards too (a second group, alongside builders)
 
 
 @dataclass(frozen=True)

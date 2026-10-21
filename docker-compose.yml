@@ -109,6 +109,13 @@ services:
       redis: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
 
+  rates:
+    <<: *pipeline
+    command: ["python", "-m", "logad.rates"]
+    depends_on:
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
   scoring:
     <<: *pipeline
     command: ["python", "-m", "logad.scoring"]
