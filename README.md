@@ -67,7 +67,9 @@ Settings come from environment variables (`LOGAD_*`); defaults are in
 ## Project layout
 
 ```
-src/logad/common/   config, database tables, health checks shared by every process
+src/logad/common/   config, database tables, Redis key names, health checks
+src/logad/shipper/  tails the shop's log files, sends new lines to ingest (at least once)
+src/logad/ingest/   ingest API: POST /ingest -> Redis stream "raw-logs"
 migrations/         database migrations (Alembic); `alembic upgrade head` applies them
 src/shop/           demo shop: services, traffic generator, fault injector
 tests/              pytest tests (integration tests need docker compose up)

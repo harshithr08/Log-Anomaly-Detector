@@ -17,6 +17,7 @@ class Settings(BaseSettings):
 
     redis_url: str = "redis://127.0.0.1:6379/0"
     database_url: str = "postgresql+asyncpg://logad:logad@127.0.0.1:5433/logad"
+    stream_prefix: str = "logad"  # every Redis key starts with this
 
     # shipper
     ingest_url: str = "http://127.0.0.1:8100"

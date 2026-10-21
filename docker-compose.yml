@@ -66,6 +66,30 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
 
+  ingest:
+    <<: *pipeline
+    command: ["uvicorn", "logad.ingest.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    ports:
+      - "8100:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      redis: { condition: service_healthy }
+
+  shipper:
+    <<: *pipeline
+    command: ["python", "-m", "logad.shipper"]
+    volumes:
+      - ./runtime:/app/runtime # reads the shop's logs; keeps its offsets here
+    environment:
+      <<: *pipeline-env
+      LOGAD_INGEST_URL: http://ingest:8000
+    depends_on:
+      ingest: { condition: service_healthy }
+
   # ── demo shop (the system being monitored) ──────────────────────────────────
   shop:
     <<: *shop-service

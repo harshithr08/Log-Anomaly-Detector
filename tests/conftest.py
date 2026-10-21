@@ -5,12 +5,29 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from redis.asyncio import Redis
 from sqlalchemy import make_url, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from logad.common.config import get_settings
+from logad.common.config import Settings, get_settings
 
 ALEMBIC_INI = Path(__file__).parents[1] / "alembic.ini"
+
+
+async def _delete_keys(redis_url: str, prefix: str) -> None:
+    redis = Redis.from_url(redis_url)
+    keys = [key async for key in redis.scan_iter(f"{prefix}:*")]
+    if keys:
+        await redis.delete(*keys)
+    await redis.aclose()
+
+
+@pytest.fixture
+def settings():
+    """Settings with a Redis key prefix unique to this test; its keys are deleted afterwards."""
+    test_settings = Settings(_env_file=None, stream_prefix=f"test-{uuid.uuid4().hex[:8]}")
+    yield test_settings
+    asyncio.run(_delete_keys(test_settings.redis_url, test_settings.stream_prefix))
 
 
 async def _run_admin(url: str, sql: str) -> None:
