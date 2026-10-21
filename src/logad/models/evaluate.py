@@ -54,9 +54,7 @@ def grade(detector, splits: Splits) -> Graded:
 def combine(name: str, graded: list[Graded], splits: Splits) -> dict:
     """Flag a session if ANY of the detectors flags it. For PR-AUC, each score
     becomes its distance above its own threshold, in units of its normal spread."""
-    margins = [
-        (g.test_scores - g.threshold) / (np.std(g.val_scores) + 1e-9) for g in graded
-    ]
+    margins = [(g.test_scores - g.threshold) / (np.std(g.val_scores) + 1e-9) for g in graded]
     combined = np.max(margins, axis=0)
     result = evaluate(
         combined, [s.label for s in splits.test], [s.fault for s in splits.test], threshold=0.0
@@ -79,6 +77,10 @@ def to_markdown(rows: list[dict], splits: Splits) -> str:
         f"sessions (thresholds: at most {FALSE_ALARM_BUDGET:.1%} of them flagged). "
         f"Test: {len(splits.test):,} sessions during scheduled faults, "
         f"{test_broken:,} of them broken by the fault injector.",
+        "",
+        "Design choices (features, grouping, which models) were made on a separate "
+        "development collection. These numbers come from a fresh collection, "
+        "evaluated once.",
         "",
         "| Detector | Precision | Recall | F1 | PR-AUC | False alarms | "
         "Recall: skip | Recall: slow | Recall: error |",

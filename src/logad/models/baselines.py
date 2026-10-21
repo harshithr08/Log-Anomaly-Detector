@@ -68,9 +68,7 @@ class MarkovChain:
         return -np.log(p)
 
     def score(self, sessions: list[Session]) -> np.ndarray:
-        return np.array(
-            [max(self._surprise(a, b) for a, b in self._steps(s)) for s in sessions]
-        )
+        return np.array([max(self._surprise(a, b) for a, b in self._steps(s)) for s in sessions])
 
 
 class UnseenTemplate:

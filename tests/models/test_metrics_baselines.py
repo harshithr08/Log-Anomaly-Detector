@@ -52,8 +52,10 @@ def test_baselines():
 
 def test_markov_chain_flags_an_unusual_step():
     train = [session(["a", "b", "c"])] * 50 + [session(["a", "c"])] * 50
-    scores = MarkovChain().fit(train).score(
-        [session(["a", "b", "c"]), session(["a", "c"]), session(["a", "c", "b"])]
+    scores = (
+        MarkovChain()
+        .fit(train)
+        .score([session(["a", "b", "c"]), session(["a", "c"]), session(["a", "c", "b"])])
     )
     assert scores[0] < 1 and scores[1] < 1  # both normal paths
     assert scores[2] > 5  # "c" then "b" never happened
