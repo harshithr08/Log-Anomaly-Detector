@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Log Anomaly Detector</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --ring: rgba(11, 11, 11, 0.10);
+    --series-1: #2a78d6;
+    --good: #0ca30c;
+    --good-text: #006300;
+    --critical: #d03b3b;
+    --warning: #fab219;
+    --wash: rgba(11, 11, 11, 0.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --ink: #f0efec;
+      --ink-2: #c3c2b7;
+      --grid: #2c2c2a;
+      --axis: #383835;
+      --ring: rgba(255, 255, 255, 0.10);
+      --series-1: #3987e5;
+      --good-text: #0ca30c;
+      --wash: rgba(255, 255, 255, 0.05);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #f0efec;
+    --ink-2: #c3c2b7;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --ring: rgba(255, 255, 255, 0.10);
+    --series-1: #3987e5;
+    --good-text: #0ca30c;
+    --wash: rgba(255, 255, 255, 0.05);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px 24px; border-bottom: 1px solid var(--ring); background: var(--surface);
+  }
+  header h1 { font-size: 17px; margin: 0; font-weight: 650; }
+  .meta { color: var(--ink-2); font-size: 13px; }
+  .live { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--good); }
+  main { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  .tile, .card, .panel {
+    background: var(--surface); border: 1px solid var(--ring); border-radius: 10px;
+  }
+  .tile { padding: 12px 14px; }
+  .tile .label { color: var(--ink-2); font-size: 12.5px; }
+  .tile .value { font-size: 26px; font-weight: 650; margin-top: 2px; }
+  .tile .sub { color: var(--muted); font-size: 12px; }
+  .layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 16px; margin-top: 16px; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .panel { padding: 14px 16px; }
+  .panel h2 { font-size: 14px; margin: 0 0 10px; font-weight: 650; }
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .charts { grid-template-columns: 1fr; } }
+  .chart-box { position: relative; height: 170px; }
+  .hint { color: var(--muted); font-size: 12px; margin: 4px 0 0; }
+  .alerts { display: flex; flex-direction: column; gap: 8px; }
+  .alert {
+    display: grid; grid-template-columns: auto 1fr auto; gap: 4px 12px; align-items: start;
+    padding: 10px 12px; border-radius: 8px; border: 1px solid var(--ring);
+    border-left: 4px solid var(--critical); cursor: pointer; background: var(--surface);
+    text-align: left; color: inherit; font: inherit; width: 100%;
+  }
+  .alert:hover, .alert:focus-visible { background: var(--wash); outline: none; }
+  .alert.resolved { border-left-color: var(--good); }
+  .state { font-size: 12px; font-weight: 650; white-space: nowrap; }
+  .state.open { color: var(--critical); }
+  .state.resolved { color: var(--good-text); }
+  .alert .service { font-weight: 650; }
+  .alert .summary { grid-column: 2 / 4; color: var(--ink-2); }
+  .alert .when { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .badge {
+    display: inline-block; font-size: 11.5px; padding: 1px 7px; border-radius: 999px;
+    border: 1px solid var(--ring); color: var(--ink-2); margin-left: 6px;
+  }
+  .empty { color: var(--muted); padding: 8px 0; }
+  .services { display: flex; flex-direction: column; gap: 12px; }
+  .service-row { border-top: 1px solid var(--ring); padding-top: 10px; }
+  .service-row:first-child { border-top: 0; padding-top: 0; }
+  .service-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .fault { font-size: 12px; }
+  .fault.healthy { color: var(--good-text); }
+  .fault.broken { color: var(--critical); font-weight: 650; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+  button.act {
+    font: inherit; font-size: 12.5px; padding: 4px 10px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--ring); background: var(--surface); color: var(--ink);
+  }
+  button.act:hover { background: var(--wash); }
+  button.act.fix { border-color: var(--good); color: var(--good-text); }
+  dialog {
+    width: min(900px, 94vw); max-height: 88vh; border: 1px solid var(--ring); border-radius: 12px;
+    background: var(--surface); color: var(--ink); padding: 0;
+  }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
+  .dialog-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--ring); }
+  .dialog-body { padding: 14px 18px; overflow: auto; max-height: calc(88vh - 60px); }
+  .times { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; color: var(--ink-2); font-size: 12.5px; margin: 8px 0 14px; }
+  .example { border: 1px solid var(--ring); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+  .why { color: var(--ink-2); margin-bottom: 6px; }
+  table.events { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.events td { padding: 2px 6px; border-top: 1px solid var(--grid); vertical-align: top; }
+  table.events td.t { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  table.events tr.hit td { background: var(--wash); font-weight: 650; }
+  .lvl-ERROR { color: var(--critical); }
+  .close { font: inherit; border: 0; background: none; color: var(--ink-2); cursor: pointer; font-size: 18px; }
+  .note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Log Anomaly Detector</h1>
+  <span class="meta live"><span class="dot" id="live-dot"></span><span id="live-text">connecting…</span></span>
+  <span class="meta" id="model">model: –</span>
+</header>
+<main>
+  <section class="tiles" aria-label="Live numbers">
+    <div class="tile"><div class="label">Log lines / s</div><div class="value" id="t-lines">–</div><div class="sub">into the pipeline</div></div>
+    <div class="tile"><div class="label">Requests / s</div><div class="value" id="t-sessions">–</div><div class="sub">sessions saved</div></div>
+    <div class="tile"><div class="label">Flagged / s</div><div class="value" id="t-flagged">–</div><div class="sub">by LSTM or timing</div></div>
+    <div class="tile"><div class="label">Open alerts</div><div class="value" id="t-alerts">–</div><div class="sub">one per service per incident</div></div>
+    <div class="tile"><div class="label">Waiting</div><div class="value" id="t-backlog">–</div><div class="sub" id="t-backlog-sub">lines · events · to score</div></div>
+  </section>
+
+  <div class="layout">
+    <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+      <section class="panel" aria-label="Charts">
+        <div class="charts">
+          <div><h2>Requests per second</h2><div class="chart-box"><canvas id="c-sessions" aria-label="Requests per second, last 5 minutes" role="img"></canvas></div></div>
+          <div><h2>Flagged requests per second</h2><div class="chart-box"><canvas id="c-flagged" aria-label="Flagged requests per second, last 5 minutes" role="img"></canvas></div></div>
+        </div>
+        <p class="hint">Last 5 minutes, one point per second. Hover for exact values.</p>
+      </section>
+
+      <section class="panel" aria-label="Alerts">
+        <h2>Open alerts</h2>
+        <div class="alerts" id="open-alerts"><div class="empty">No open alerts.</div></div>
+        <h2 style="margin-top:16px">Recently resolved</h2>
+        <div class="alerts" id="resolved-alerts"><div class="empty">None yet.</div></div>
+      </section>
+    </div>
+
+    <section class="panel" aria-label="Break the shop">
+      <h2>Break the shop</h2>
+      <div class="services" id="services"></div>
+      <p class="note">Faults are recorded by the shop as ground truth; the pipeline never sees them.
+        <b>Slow</b> adds 1.5 s, <b>Error</b> fails half of the requests, <b>Skip</b> silently skips a step,
+        <b>Crash</b> kills the process (Docker restarts it).</p>
+    </section>
+  </div>
+</main>
+
+<dialog id="detail" aria-label="Alert detail">
+  <div class="dialog-head"><strong id="d-title">Alert</strong><button class="close" id="d-close" aria-label="Close">×</button></div>
+  <div class="dialog-body" id="d-body"></div>
+</dialog>
+
+<script>
+"use strict";
+const SERVICES = ["shop", "inventory", "payment", "shipping"];
+const FAULTS = [
+  ["Slow", { kind: "slow", probability: 1.0, delay_ms: 1500 }],
+  ["Error", { kind: "error", probability: 0.5 }],
+  ["Skip", { kind: "skip", probability: 0.5 }],
+  ["Crash", { kind: "crash" }],
+];
+const POINTS = 300;
+
+function el(tag, props = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") node.className = v;
+    else if (k === "text") node.textContent = v;  // text only: never inject HTML from logs
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v);
+  }
+  for (const child of children) node.append(child);
+  return node;
+}
+const time = (iso) => iso ? new Date(iso).toLocaleTimeString() : "–";
+const ago = (iso) => {
+  const s = Math.round((Date.now() - new Date(iso)) / 1000);
+  return s < 60 ? `${s}s ago` : `${Math.round(s / 60)} min ago`;
+};
+const short = (template) => (template || "").split(" ").slice(2).join(" ") || template;
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+// ── charts ────────────────────────────────────────────────────────────────
+function makeChart(canvas, label) {
+  return new Chart(canvas, {
+    type: "line",
+    data: { labels: [], datasets: [{ label, data: [], borderColor: css("--series-1"),
+      borderWidth: 2, pointRadius: 0, pointHoverRadius: 5, pointHitRadius: 12, tension: 0.25,
+      borderJoinStyle: "round", borderCapStyle: "round" }] },
+    options: {
+      animation: false, responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: (ctx) => `${label}: ${ctx.parsed.y}` } } },
+      scales: {
+        x: { ticks: { color: css("--muted"), maxTicksLimit: 6, maxRotation: 0 },
+             grid: { display: false }, border: { color: css("--axis") } },
+        y: { beginAtZero: true, ticks: { color: css("--muted"), maxTicksLimit: 5 },
+             grid: { color: css("--grid") }, border: { display: false } },
+      },
+    },
+  });
+}
+const charts = {
+  sessions: makeChart(document.getElementById("c-sessions"), "Requests/s"),
+  flagged: makeChart(document.getElementById("c-flagged"), "Flagged/s"),
+};
+function push(chart, label, value) {
+  chart.data.labels.push(label);
+  chart.data.datasets[0].data.push(value);
+  if (chart.data.labels.length > POINTS) { chart.data.labels.shift(); chart.data.datasets[0].data.shift(); }
+  chart.update("none");
+}
+
+// ── alerts ────────────────────────────────────────────────────────────────
+function alertCard(alert) {
+  const open = alert.status === "open";
+  const card = el("button", { class: `alert ${open ? "" : "resolved"}`, type: "button",
+    onclick: () => showAlert(alert.id) },
+    el("span", { class: `state ${open ? "open" : "resolved"}`, text: open ? "● OPEN" : "✓ RESOLVED" }),
+    el("span", {}, el("span", { class: "service", text: alert.service }),
+      ...alert.detectors.map((d) => el("span", { class: "badge", text: d })),
+      ...(alert.sessions ? [el("span", { class: "badge",
+        text: `${alert.sessions} ${alert.sessions === 1 ? "request" : "requests"}` })] : [])),
+    el("span", { class: "when", text: open ? `raised ${ago(alert.raised_at)}` : `resolved ${time(alert.resolved_at)}` }),
+    el("span", { class: "summary", text: alert.summary.replace(/^[a-z]+: /, "") }));
+  return card;
+}
+function renderAlerts(target, alerts, emptyText) {
+  target.replaceChildren(...(alerts.length ? alerts.map(alertCard) : [el("div", { class: "empty", text: emptyText })]));
+}
+async function refreshResolved() {
+  try {
+    const page = await (await fetch("/api/alerts?status=resolved&limit=6")).json();
+    renderAlerts(document.getElementById("resolved-alerts"), page.items, "None yet.");
+  } catch { /* the next refresh will try again */ }
+}
+
+async function showAlert(id) {
+  const a = await (await fetch(`/api/alerts/${id}`)).json();
+  document.getElementById("d-title").textContent = `${a.service} — ${a.status}`;
+  const body = document.getElementById("d-body");
+  body.replaceChildren(
+    el("div", { text: a.summary }),
+    el("div", { class: "times" },
+      el("span", { text: `first evidence ${time(a.opened_at)}` }),
+      el("span", { text: `alert raised ${time(a.raised_at)}` }),
+      el("span", { text: `last seen ${time(a.last_seen_at)}` }),
+      el("span", { text: `resolved ${time(a.resolved_at)}` })),
+    el("h2", { text: "Example requests" }),
+    ...a.examples.map(exampleBlock));
+  document.getElementById("detail").showModal();
+}
+function exampleBlock(ex) {
+  const x = ex.explanation;
+  const why = ex.detector === "lstm"
+    ? `LSTM: after "${short(x.after)}" expected "${short(x.expected)}", got "${short(x.got)}" (probability ${x.probability.toFixed(4)})`
+    : `Timing: ${x.slowest} is ${x.spreads_slower} spreads slower than normal (whole request ${x.whole_request_spreads})`;
+  const events = ex.session ? ex.session.events : [];
+  const rows = events.map((e) => el("tr", { class: ex.detector === "lstm" && e.template === x.got ? "hit" : "" },
+    el("td", { class: "t", text: e.ts.slice(11, 23) }),
+    el("td", { text: e.service }),
+    el("td", { class: `lvl-${e.level}`, text: e.level }),
+    el("td", { text: e.message })));
+  return el("div", { class: "example" },
+    el("div", { class: "why", text: why }),
+    el("div", { class: "hint", text: `request ${ex.session_id}` }),
+    el("table", { class: "events" }, el("tbody", {}, ...rows)));
+}
+document.getElementById("d-close").addEventListener("click", () => document.getElementById("detail").close());
+
+// ── break / fix ───────────────────────────────────────────────────────────
+const serviceRows = {};
+for (const service of SERVICES) {
+  const status = el("span", { class: "fault", text: "…" });
+  const buttons = el("div", { class: "buttons" },
+    ...FAULTS.map(([label, spec]) => el("button", { class: "act", type: "button",
+      onclick: () => setFault(service, spec) }, label)),
+    el("button", { class: "act fix", type: "button", onclick: () => setFault(service, null) }, "Fix"));
+  serviceRows[service] = status;
+  document.getElementById("services").append(
+    el("div", { class: "service-row" },
+      el("div", { class: "service-head" }, el("strong", { text: service }), status), buttons));
+}
+async function setFault(service, spec) {
+  await fetch(`/api/faults/${service}`, spec
+    ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(spec) }
+    : { method: "DELETE" });
+  refreshFaults();
+}
+async function refreshFaults() {
+  try {
+    const faults = await (await fetch("/api/faults")).json();
+    for (const [service, fault] of Object.entries(faults)) {
+      const node = serviceRows[service];
+      if (!node) continue;
+      const broken = fault && fault !== "unreachable";
+      node.className = `fault ${broken ? "broken" : fault === "unreachable" ? "broken" : "healthy"}`;
+      node.textContent = fault === "unreachable" ? "⚠ unreachable (restarting?)"
+        : broken ? `⚠ ${fault.kind}${fault.kind === "slow" ? ` +${fault.delay_ms} ms` : ""}` : "✓ healthy";
+    }
+  } catch { /* try again on the next tick */ }
+}
+
+// ── live updates ──────────────────────────────────────────────────────────
+function onMessage({ stats, open_alerts }) {
+  const label = new Date(stats.at * 1000).toLocaleTimeString();
+  document.getElementById("t-lines").textContent = stats.lines_per_s.toFixed(0);
+  document.getElementById("t-sessions").textContent = stats.sessions_per_s.toFixed(1);
+  document.getElementById("t-flagged").textContent = stats.flagged_per_s.toFixed(1);
+  document.getElementById("t-alerts").textContent = stats.open_alerts;
+  const b = stats.backlog;
+  document.getElementById("t-backlog").textContent = (b.raw_lines + b.events + b.sessions_to_score).toLocaleString();
+  document.getElementById("t-backlog-sub").textContent = `${b.raw_lines} lines · ${b.events} events · ${b.sessions_to_score} to score`;
+  document.getElementById("model").textContent = `model: ${stats.model_version || "none yet"}`;
+  push(charts.sessions, label, stats.sessions_per_s);
+  push(charts.flagged, label, stats.flagged_per_s);
+  renderAlerts(document.getElementById("open-alerts"), open_alerts, "No open alerts.");
+}
+function connect(delay = 500) {
+  const socket = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+  socket.onopen = () => { document.getElementById("live-dot").className = "dot on";
+                          document.getElementById("live-text").textContent = "live"; delay = 500; };
+  socket.onmessage = (event) => onMessage(JSON.parse(event.data));
+  socket.onclose = () => {
+    document.getElementById("live-dot").className = "dot";
+    document.getElementById("live-text").textContent = "reconnecting…";
+    setTimeout(() => connect(Math.min(delay * 2, 10000)), delay);
+  };
+}
+connect();
+refreshFaults(); setInterval(refreshFaults, 3000);
+refreshResolved(); setInterval(refreshResolved, 10000);
+</script>
+</body>
+</html>

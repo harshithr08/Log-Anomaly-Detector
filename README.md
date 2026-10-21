@@ -6,7 +6,11 @@ request with three detectors, and shows explained alerts on a dashboard.
 
 > **Status:** being built phase by phase. See [ROADMAP.md](ROADMAP.md).
 > Done: **Phase 1 (foundation)**, **Phase 2 (demo shop + traffic + faults)**,
-> **Phase 3 (live pipeline)**, **Phase 4 (correct under failure)**, **Phase 5 (models)**.
+> **Phase 3 (live pipeline)**, **Phase 4 (correct under failure)**, **Phase 5 (models)**,
+> **Phase 6 (alerts + dashboard)**.
+
+**Dashboard:** `docker compose up -d --build`, then open <http://localhost:8200>.
+Break a service with the buttons on the right and watch an explained alert appear.
 
 ## Quick start
 
@@ -166,6 +170,35 @@ python -m logad.models.train              # trains, grades, saves models/<versio
 
 The scoring workers pick up a new `models/latest` within 30 seconds.
 
+## Alerts and dashboard
+
+Thousands of scored requests become a few alerts a person can act on:
+
+- **One alert per service per incident.** Each detector names a service: the
+  LSTM's unexpected step, the timing detector's slowest service, the rate
+  detector's event type.
+- **Opens** at 5 flagged requests of a service within 60 s, or at any rate
+  anomaly. A single flag is never an alert: 1 in 1,000 normal requests is flagged.
+- **Resolves** once evidence has stayed below that level for 60 s (not "no
+  evidence at all": normal traffic always has a trickle of false alarms).
+- **Explains itself**: the most common reason per detector plus example
+  requests, e.g. *"inventory: 24 requests with an unexpected step: after
+  'Handling POST /reservations' expected 'Checking stock levels', got 'Reserved
+  stock'"*.
+- **Restart-safe**: the alert manager rebuilds its picture from Postgres every
+  2 s; a partial unique index allows only one open alert per service.
+
+The **query API** (`:8200/api/...`) serves stats, paginated alerts, alert
+details with full example requests, sessions, rate anomalies and the Break/Fix
+buttons; **`/ws`** pushes stats and open alerts every second to the
+**dashboard** (one HTML page, Chart.js): live throughput, flagged requests,
+backlogs, open and resolved alerts, and an alert detail view with the
+surprising line highlighted. Light and dark themes; works on a phone.
+
+Measured live: a payment skip fault was raised as an alert 3-14 s after the
+fault started (it needs 5 flagged requests), and resolved by itself a minute
+after the fault was fixed.
+
 ## Configuration
 
 Settings come from environment variables (`LOGAD_*`); defaults are in
@@ -183,6 +216,8 @@ src/logad/sessions/ session builder: events of one request -> one row in Postgre
 src/logad/models/   dataset, baselines, LSTM, timing, training, ONNX serving
 src/logad/scoring/  scoring workers: every saved session -> scores
 src/logad/rates/    rate detector: event counts per 10 s -> rate_anomalies
+src/logad/alerts/   alert manager: evidence -> one explained alert per service per incident
+src/logad/api/      query API, WebSocket, dashboard (static/index.html)
 eval/               chaos test, dataset collection, results
 migrations/         database migrations (Alembic); `alembic upgrade head` applies them
 src/shop/           demo shop: services, traffic generator, fault injector

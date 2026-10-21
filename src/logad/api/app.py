@@ -10,6 +10,7 @@ app.py — the query API, the live WebSocket and (from static/) the dashboard.
     POST   /api/faults/{service}      break a shop service  {"kind", "probability", "delay_ms"}
     DELETE /api/faults/{service}      fix it
     WS     /ws                        every second: stats + open alerts
+    GET    /                          the dashboard (static/index.html)
 
 Run: uvicorn logad.api.app:create_app --factory --port 8200
 """
@@ -18,10 +19,12 @@ import asyncio
 import contextlib
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Literal
 
 import httpx
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis
 from sqlalchemy import select, text
@@ -34,6 +37,7 @@ from shop.settings import SERVICES, ShopSettings
 
 log = logging.getLogger("logad.api")
 PUSH_EVERY_S = 1.0
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 class FaultRequest(BaseModel):
@@ -248,4 +252,6 @@ def create_app(
         except WebSocketDisconnect:
             app.state.sockets.discard(socket)
 
+    # last, so the /api and /ws routes above take precedence
+    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="dashboard")
     return app

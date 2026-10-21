@@ -110,6 +110,43 @@ def test_break_and_fix_buttons_reach_the_shop(client, shop):
     assert client.post("/api/faults/nope", json={"kind": "slow"}).status_code == 404
 
 
+def test_dashboard_is_served(client):
+    page = client.get("/")
+    assert page.status_code == 200 and "<title>Log Anomaly Detector</title>" in page.text
+
+
+def test_websocket_works_through_a_real_uvicorn_server(settings, database_url):
+    """TestClient bypasses uvicorn, which needs a WebSocket library of its own:
+    this test caught the dashboard's live feed silently not connecting."""
+    import json
+    import socket as sockets
+    import threading
+    import time
+
+    import uvicorn
+    from websockets.sync.client import connect
+
+    asyncio.run(_seed(database_url))
+    with sockets.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    app = create_app(settings.model_copy(update={"database_url": database_url}))
+    server = uvicorn.Server(uvicorn.Config(app, port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        for _ in range(100):
+            if server.started:
+                break
+            time.sleep(0.05)
+        with connect(f"ws://127.0.0.1:{port}/ws", open_timeout=5) as ws:
+            message = json.loads(ws.recv(timeout=5))
+        assert message["stats"]["open_alerts"] == 1
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
+
+
 def test_websocket_pushes_stats_and_open_alerts(client):
     with client.websocket_connect("/ws") as socket:
         message = socket.receive_json()

@@ -21,6 +21,7 @@ dependencies = [
     "scikit-learn==1.9.1",
     "sqlalchemy[asyncio]==2.1.5",
     "uvicorn==0.54.0",
+    "websockets==17.3",  # WebSocket support for uvicorn (the dashboard's live feed)
 ]
 
 [project.optional-dependencies]
@@ -38,6 +39,9 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+logad = ["api/static/*"]  # the dashboard page
 
 [tool.ruff]
 line-length = 100
