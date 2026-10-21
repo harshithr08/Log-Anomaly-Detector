@@ -17,12 +17,12 @@ import logging
 import time
 
 from redis.asyncio import Redis
-from redis.exceptions import ResponseError
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from logad.common.config import Settings, get_settings
 from logad.common.db import Session, make_engine
+from logad.common.groups import GroupReader
 from logad.common.streams import Keys
 from logad.sessions.assembler import SessionAssembler, to_row
 
@@ -30,8 +30,9 @@ GROUP = "builders"
 log = logging.getLogger("logad.sessions")
 
 
-def decode_event(fields: dict) -> dict:
+def decode_event(entry_id: str, fields: dict) -> dict:
     return {
+        "line_id": fields.get("line_id") or entry_id,
         "request_id": fields["request_id"],
         "ts": fields["ts"],
         "service": fields["service"],
@@ -60,38 +61,35 @@ class SessionBuilder:
             settings.session_end_service,
             settings.session_end_prefix,
         )
-        self.late_events = 0
+        self.reader = GroupReader(
+            redis,
+            self.streams,
+            GROUP,
+            consumer,
+            count=settings.builder_batch_size,
+            claim_idle_s=settings.claim_idle_s,
+            claim_every_s=settings.claim_every_s,
+        )
+        self.counts = {"late": 0, "duplicate": 0}
 
     async def setup(self) -> None:
-        for stream in self.streams:
-            try:
-                await self.redis.xgroup_create(stream, GROUP, id="0", mkstream=True)
-            except ResponseError as error:
-                if "BUSYGROUP" not in str(error):
-                    raise
+        await self.reader.setup()
 
     async def read_batch(self, block_ms: int = 200) -> int:
-        """Read new events into open sessions. Returns how many were read."""
-        response = await self.redis.xreadgroup(
-            GROUP,
-            self.consumer,
-            {stream: ">" for stream in self.streams},
-            count=self.settings.builder_batch_size,
-            block=block_ms,
-        )
+        """Read events into open sessions. Returns how many were read."""
+        entries = await self.reader.read(block_ms)
         now = time.monotonic()
-        no_session: dict[str, list[str]] = {}  # events to ack right away
-        read = 0
-        for stream, entries in response or []:
-            for entry_id, fields in entries:
-                read += 1
-                outcome = self.assembler.add(stream, entry_id, decode_event(fields), now)
-                if outcome != "added":
-                    self.late_events += outcome == "late"
-                    no_session.setdefault(stream, []).append(entry_id)
-        for stream, entry_ids in no_session.items():
+        ack_now: dict[str, list[str]] = {}  # events that won't be part of a saved session
+        for entry in entries:
+            event = decode_event(entry.entry_id, entry.fields)
+            outcome = self.assembler.add(entry.stream, entry.entry_id, event, now)
+            if outcome != "added":
+                if outcome in self.counts:
+                    self.counts[outcome] += 1
+                ack_now.setdefault(entry.stream, []).append(entry.entry_id)
+        for stream, entry_ids in ack_now.items():
             await self.redis.xack(stream, GROUP, *entry_ids)
-        return read
+        return len(entries)
 
     async def save_due(self, now: float | None = None) -> int:
         """Save every finished session, then ack its events. Returns how many."""
@@ -127,10 +125,13 @@ async def run() -> None:
             saved += await builder.save_due()
             if time.monotonic() - last_report >= 10:
                 log.info(
-                    "Saved %d sessions in the last 10s, %d open, %d late events dropped",
+                    "Saved %d sessions in the last 10s, %d open, %d duplicates dropped, "
+                    "%d late events dropped, %d events recovered after crashes",
                     saved,
                     len(builder.assembler.open),
-                    builder.late_events,
+                    builder.counts["duplicate"],
+                    builder.counts["late"],
+                    builder.reader.recovered,
                 )
                 saved, last_report = 0, time.monotonic()
     finally:

@@ -11,7 +11,7 @@ import socket
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,8 +22,12 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://logad:logad@127.0.0.1:5433/logad"
     stream_prefix: str = "logad"  # every Redis key starts with this
     shard_count: int = 4  # events streams; a request's events always go to one shard
-    # This process's name inside a Redis consumer group.
+    # This process's name inside a Redis consumer group. In Docker the hostname is
+    # the container ID, so a restarted container keeps its name (and its pending work).
     consumer_name: str = Field(default_factory=lambda: f"{socket.gethostname()}-{os.getpid()}")
+    # Entries pending longer than this are claimed from their (presumably dead) consumer.
+    claim_idle_s: float = 60.0
+    claim_every_s: float = 5.0
 
     # parser
     parser_batch_size: int = 200
@@ -43,6 +47,14 @@ class Settings(BaseSettings):
     shipper_state_file: Path = Path("runtime/shipper/offsets.json")
     shipper_poll_s: float = 0.2
     shipper_batch_lines: int = 500
+
+    @model_validator(mode="after")
+    def _claim_after_sessions_close(self):
+        # A live builder holds a session's events pending until the session closes;
+        # claiming earlier would steal sessions that are still open.
+        if self.claim_idle_s <= self.session_timeout_s + self.session_grace_s:
+            raise ValueError("claim_idle_s must exceed session_timeout_s + session_grace_s")
+        return self
 
 
 @lru_cache

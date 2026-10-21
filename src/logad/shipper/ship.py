@@ -50,7 +50,7 @@ class Shipper:
                 break  # the remaining files go in the next batch
             lines, position = tailer.read(max_lines=room)
             source = name.removesuffix(".log")
-            batch += [{"source": source, "line": line} for line in lines]
+            batch += [{"source": source, "line": line, "id": line_id} for line_id, line in lines]
             proposed[name] = position
 
         if batch:

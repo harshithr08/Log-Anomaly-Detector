@@ -26,6 +26,7 @@ MAX_BATCH_LINES = 5000
 class Line(BaseModel):
     source: str = Field(max_length=100)
     line: str = Field(max_length=10_000)
+    id: str | None = Field(None, max_length=200, description="permanent line ID, for dedupe")
 
 
 class Batch(BaseModel):
@@ -54,10 +55,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         received_at = datetime.now(UTC).isoformat()
         async with app.state.redis.pipeline(transaction=False) as pipe:
             for item in batch.lines:
-                pipe.xadd(
-                    keys.raw_logs,
-                    {"source": item.source, "line": item.line, "received_at": received_at},
-                )
+                fields = {"source": item.source, "line": item.line, "received_at": received_at}
+                if item.id:
+                    fields["line_id"] = item.id
+                pipe.xadd(keys.raw_logs, fields)
             await pipe.execute()
         return {"accepted": len(batch.lines)}
 

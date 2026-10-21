@@ -3,6 +3,7 @@ from logad.sessions.assembler import SessionAssembler, to_row
 
 def event(request_id, ts, service="payment", message="Charging order=o1"):
     return {
+        "line_id": f"{request_id}/{ts}/{service}/{message}",
         "request_id": request_id,
         "ts": f"2026-10-21T10:00:{ts:02d}.000000+00:00",
         "service": service,
@@ -44,6 +45,13 @@ def test_events_after_close_are_late():
     a.due(now=5)
     assert a.add("s", "2", event("r1", 2), now=6) == "late"
     assert "r1" not in a.open
+
+
+def test_a_line_delivered_twice_is_kept_once():
+    a = make()
+    assert a.add("s", "1", event("r1", 1), now=0) == "added"
+    assert a.add("s", "9", event("r1", 1), now=1) == "duplicate"  # same line, new entry
+    assert len(a.open["r1"].events) == 1
 
 
 def test_lines_outside_requests_are_not_sessions():

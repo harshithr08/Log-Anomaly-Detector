@@ -21,6 +21,7 @@ class OpenSession:
     session_id: str
     events: list[dict] = field(default_factory=list)
     entry_ids: list[tuple[str, str]] = field(default_factory=list)  # (stream, entry id)
+    line_ids: set[str] = field(default_factory=set)  # to drop lines delivered twice
     last_seen: float = 0.0
     end_seen_at: float | None = None
     closed_by: str | None = None
@@ -36,14 +37,18 @@ class SessionAssembler:
         self.recently_closed: dict[str, float] = {}
 
     def add(self, stream: str, entry_id: str, event: dict, now: float) -> str:
-        """Add one event. Returns "added", "late" (its session already closed)
-        or "unsessioned" (written outside any request)."""
+        """Add one event. Returns "added", "duplicate" (this line is already in
+        the session), "late" (its session already closed) or "unsessioned"
+        (written outside any request)."""
         session_id = event["request_id"]
         if session_id == NO_REQUEST:
             return "unsessioned"
         if session_id in self.recently_closed:
             return "late"
         session = self.open.setdefault(session_id, OpenSession(session_id))
+        if event["line_id"] in session.line_ids:
+            return "duplicate"
+        session.line_ids.add(event["line_id"])
         session.events.append(event)
         session.entry_ids.append((stream, entry_id))
         session.last_seen = now

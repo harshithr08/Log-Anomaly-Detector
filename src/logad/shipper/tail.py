@@ -32,10 +32,12 @@ def file_id(path: Path) -> tuple[int, int] | None:
     return (stat.st_dev, stat.st_ino)
 
 
-def _read_complete_lines(path: Path, offset: int, max_lines: int) -> tuple[list[str], int]:
+def _read_complete_lines(
+    path: Path, offset: int, max_lines: int
+) -> tuple[list[tuple[int, str]], int]:
     """Up to max_lines lines that end with a newline, starting at offset. A
-    half-written last line is left for next time. Returns (lines, offset just
-    after the last line returned)."""
+    half-written last line is left for next time. Returns ([(line offset, line)],
+    offset just after the last line returned)."""
     with path.open("rb") as f:
         f.seek(offset)
         chunk = f.read(MAX_READ_BYTES)
@@ -45,10 +47,16 @@ def _read_complete_lines(path: Path, offset: int, max_lines: int) -> tuple[list[
         if newline == -1:
             break
         raw = chunk[end:newline].rstrip(b"\r")
-        end = newline + 1
         if raw:
-            lines.append(raw.decode("utf-8", errors="replace"))
+            lines.append((offset + end, raw.decode("utf-8", errors="replace")))
+        end = newline + 1
     return lines, offset + end
+
+
+def _with_ids(lines: list[tuple[int, str]], fid: tuple[int, int]) -> list[tuple[str, str]]:
+    """Give each line a permanent ID: <device>.<file id>.<byte offset>. A line
+    that is sent again (after a crash or a failed send) keeps the same ID."""
+    return [(f"{fid[0]}.{fid[1]}.{at}", text) for at, text in lines]
 
 
 class FileTailer:
@@ -56,8 +64,9 @@ class FileTailer:
         self.path = path
         self.position = position or Position(file_id=None)
 
-    def read(self, max_lines: int = 10_000) -> tuple[list[str], Position]:
-        """New complete lines, and the position to commit once they are delivered."""
+    def read(self, max_lines: int = 10_000) -> tuple[list[tuple[str, str]], Position]:
+        """New complete lines as (line ID, line), and the position to commit once
+        they are delivered."""
         current_id = file_id(self.path)
         if current_id is None:
             return [], self.position
@@ -69,7 +78,7 @@ class FileTailer:
             if file_id(rotated) == pos.file_id:
                 lines, offset = _read_complete_lines(rotated, pos.offset, max_lines)
                 if lines:
-                    return lines, Position(pos.file_id, offset)
+                    return _with_ids(lines, pos.file_id), Position(pos.file_id, offset)
             pos = Position(current_id, 0)  # old file done (or gone): start the new one
 
         if pos.file_id is None:
@@ -78,7 +87,7 @@ class FileTailer:
             pos = Position(current_id, 0)
 
         lines, offset = _read_complete_lines(self.path, pos.offset, max_lines)
-        return lines, Position(current_id, offset)
+        return _with_ids(lines, current_id), Position(current_id, offset)
 
     def commit(self, position: Position) -> None:
         self.position = position
