@@ -129,10 +129,20 @@ class SessionAssembler:
                 del self.recently_closed[session_id]
 
 
+def _file_position(line_id: str) -> tuple[str, int]:
+    """Line IDs from the shipper are '<device>.<file id>.<byte offset>'."""
+    file, _, offset = line_id.rpartition(".")
+    return (file, int(offset)) if offset.isdigit() and file else (line_id, 0)
+
+
 def to_row(session: OpenSession) -> dict:
-    """The database row for a closed session; events sorted by their timestamp."""
-    # sorted() is stable: events with the same timestamp keep their arrival order
-    events = sorted(session.events, key=lambda e: datetime.fromisoformat(e["ts"]))
+    """The database row for a closed session; events in time order. Lines from
+    the same file written in the same millisecond keep their order in the file
+    (parallel parsers can deliver them swapped)."""
+    events = sorted(
+        session.events,
+        key=lambda e: (datetime.fromisoformat(e["ts"]), *_file_position(e["line_id"])),
+    )
     services = list(dict.fromkeys(e["service"] for e in events))
     return {
         "session_id": session.session_id,

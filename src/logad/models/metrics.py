@@ -9,6 +9,11 @@ import numpy as np
 from sklearn.metrics import average_precision_score, precision_recall_fscore_support
 
 FALSE_ALARM_BUDGET = 0.001  # at most 1 in 1,000 normal requests flagged
+# Normal sessions that took the same rare path (e.g. a declined card) get the
+# same score, so the threshold can land exactly on a pile of tied scores. Live
+# scoring (ONNX Runtime) rounds slightly differently from training (PyTorch),
+# which would then flip some of them. Keep the threshold a hair above.
+TIE_MARGIN = 1e-3
 
 
 def threshold_for(normal_scores: np.ndarray, false_alarm_rate: float = FALSE_ALARM_BUDGET) -> float:
@@ -16,7 +21,8 @@ def threshold_for(normal_scores: np.ndarray, false_alarm_rate: float = FALSE_ALA
     `false_alarm_rate` of these normal scores are above it."""
     ordered = np.sort(np.asarray(normal_scores, dtype=float))
     allowed = int(len(ordered) * false_alarm_rate)  # normal sessions we may flag
-    return float(ordered[len(ordered) - 1 - allowed])
+    value = float(ordered[len(ordered) - 1 - allowed])
+    return value + TIE_MARGIN * max(1.0, abs(value))
 
 
 def evaluate(scores, labels, faults, threshold: float) -> dict:

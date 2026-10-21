@@ -23,7 +23,15 @@ def test_threshold_respects_the_false_alarm_budget():
 
 def test_threshold_with_many_ties_flags_nothing_rather_than_too_much():
     normal = np.array([0.0] * 990 + [1.0] * 10)  # 1% of normal sessions score 1
-    assert threshold_for(normal, false_alarm_rate=0.001) == 1.0  # so 1 is not "above"
+    assert threshold_for(normal, false_alarm_rate=0.001) > 1.0  # so 1 is not "above"
+
+
+def test_tied_normal_scores_survive_rounding_noise():
+    """A pile of identical normal scores right at the threshold (e.g. declined
+    cards) must stay unflagged when live scoring rounds a little differently."""
+    normal = np.array([1.0] * 5000 + [4.053994] * 20)
+    threshold = threshold_for(normal, false_alarm_rate=0.001)
+    assert 4.053994 * (1 + 1e-6) < threshold < 4.07
 
 
 def test_evaluate_reports_recall_per_fault_kind():

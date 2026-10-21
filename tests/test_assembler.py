@@ -104,6 +104,22 @@ def test_lines_outside_requests_are_not_sessions():
     assert a.open == {}
 
 
+def test_same_millisecond_lines_keep_their_file_order():
+    """Two parsers can deliver lines from the same millisecond swapped; their
+    byte offsets in the file decide."""
+    a = make()
+    later = {**event("r1", 5, service="shipping", message="Shipment created"), "line_id": "1.9.200"}
+    earlier = {
+        **event("r1", 5, service="shipping", message="Selected carrier"),
+        "line_id": "1.9.100",
+    }
+    a.add("s", "1", later, now=0)
+    a.add("s", "2", earlier, now=0)
+    a.add("s", "3", event("r1", 6, **END), now=0)
+    row = to_row(a.due(now=10)[0])
+    assert [e["message"] for e in row["events"][:2]] == ["Selected carrier", "Shipment created"]
+
+
 def test_row_sorts_events_by_time():
     a = make()
     a.add("s", "1", event("r1", 5, **END), now=0)

@@ -28,6 +28,10 @@ from logad.models.dataset import Session
 SERVICES = ("shop", "inventory", "payment", "shipping")
 FEATURES = ("total_ms", *(f"{service}_ms" for service in SERVICES))
 MIN_SPREAD = 0.1  # on the log scale; so a very steady path doesn't explode
+# Times are compared on a log scale in units of TIME_UNIT_MS: log(1 + ms / unit).
+# Without a unit, a 3 ms request taking 12 ms looks "4x slower" although a few
+# milliseconds of jitter is not an incident; with it, small times barely move.
+TIME_UNIT_MS = 10.0
 MIN_PATH_SESSIONS = 30  # fewer than this: use the request type's numbers
 
 
@@ -42,7 +46,7 @@ def raw_features(session: Session) -> np.ndarray:
             )
     total_ms = (session.ended_at - session.started_at) * 1000
     values = [total_ms, *(service_ms[service] for service in SERVICES)]
-    return np.array([math.log1p(max(v, 0.0)) for v in values])
+    return np.array([math.log1p(max(v, 0.0) / TIME_UNIT_MS) for v in values])
 
 
 def _stats(rows: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
