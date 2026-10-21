@@ -1,0 +1,233 @@
+# Roadmap: Live Log Anomaly Detector
+
+## Goal
+
+A small online shop made of microservices writes logs **live**. A streaming
+pipeline parses them, groups them into requests, and scores every request with
+three detectors. Problems show up as **explained alerts** on a dashboard within
+seconds.
+
+Three things the project proves, each with a number from a re-runnable script:
+
+1. **It catches real problems.** We break the shop on purpose and record exactly
+   which requests were affected. That ground truth gives: faults caught, time to
+   detect, false alarms per hour.
+2. **It stays correct when parts crash.** Kill any worker mid-stream: 0 lost, 0 duplicated.
+3. **It is fast.** Throughput, p99 latency, and how it scales with more workers.
+
+### The final demo (2 minutes)
+
+1. `docker compose up` → open the dashboard. Traffic is flowing through the shop.
+2. Click **"Break payment: slow"** → an alert appears: *payment service, latency
+   6× normal, caught by Isolation Forest, 37 affected requests*.
+3. Click **"Break inventory: skip step"** → an alert: *unexpected event order,
+   caught by the LSTM: expected `stock reserved`, got `payment started`*.
+4. Kill a worker → the pipeline keeps going; counters show **0 lost, 0 duplicated**.
+5. Click **"Fix"** → the alerts resolve on their own.
+
+---
+
+## Progress
+
+- [ ] Phase 1: Foundation
+- [ ] Phase 2: Demo shop + traffic + fault injector
+- [ ] Phase 3: Live pipeline
+- [ ] Phase 4: Correct under failure
+- [ ] Phase 5: Models
+- [ ] Phase 6: Alerts + dashboard
+- [ ] Phase 7: Measure & optimize
+- [ ] Phase 8: Fault evaluation + polish
+- [ ] Bonus: HDFS benchmark
+
+---
+
+## Architecture
+
+```
+ TRAFFIC GENERATOR ──► DEMO SHOP (FastAPI services)       FAULT INJECTOR
+                       shop → inventory → payment → shipping   (break / fix; records
+                       plain-text logs with a request_id        affected request IDs)
+                                   │
+                              log files
+                                   ▼
+                       Shipper (tails files, sends batches)
+                                   ▼
+                       Ingest API ── 429 when the queue is full
+                                   ▼
+                       [Redis Stream: raw-logs]
+                                   ▼
+                       Parser workers ×N (Drain3 + shared pattern registry)
+                                   │ bad lines → [dead-letter stream]
+                                   ▼
+                       [Redis Streams: events, sharded by request_id]
+                                   ▼
+                       Session builder (one session = one request)
+                                   ▼
+                       [Redis Stream: sessions]
+                                   ▼
+                       Scoring workers ×N: LSTM + Isolation Forest
+                       Rate detector: event counts per 10s
+                                   ▼
+                       Alert manager (group, explain, auto-resolve)
+                                   ▼
+                       PostgreSQL (sessions, scores, alerts, faults)
+                                   ▼
+                       Query API + WebSocket ──► Dashboard
+```
+
+Every box is its own process in Docker Compose, so each part scales and fails on its own.
+
+---
+
+## Key decisions
+
+| Decision | Choice | Why |
+|---|---|---|
+| Log source | **Demo shop we build** | Live logs, clear sessions, faults on demand, exact ground truth. |
+| Log format | **Plain-text lines** | Like real apps. Template parsing is a real step. |
+| Getting logs out | **Services write files; a shipper tails them** | Like Fluent Bit / Vector: apps don't know the pipeline exists. |
+| Session | **One request** (`request_id` passed between services) | Short, with a clear start and end. |
+| Queue | **Redis Streams** | Kafka's ideas (consumer groups, acks, replay) with much less setup. |
+| Database | **PostgreSQL** | Upserts make "no duplicates" easy. |
+| Models | **Versioned folders** (weights, vocab, thresholds, metrics) | Every score traces back to the model that made it. |
+| Model serving | **ONNX Runtime** vs PyTorch | Faster inference; measured. |
+| Frontend | **One HTML page** (Chart.js + WebSocket) | Enough to show everything. |
+| Skipped on purpose | Kafka, Kubernetes, React, Flink | Scope control. |
+
+---
+
+## The 3 detectors
+
+| Detector | Looks at | Catches | Trained on |
+|---|---|---|---|
+| **LSTM next-event** (DeepLog-style) | Order of events in a request | Skipped, wrong or extra steps | Normal requests only |
+| **Isolation Forest** | Numbers per request: latency, per-service time, retries, errors | Slow or retry-heavy requests | Normal requests only |
+| **Rate detector** | Count of each event type per 10s vs rolling average | Error floods, traffic drops | Nothing (statistics) |
+
+Every alert says **which detector fired and why**.
+
+### How we measure them
+
+- **Per request:** precision, recall, F1, PR-AUC on held-out requests. Labels come
+  from the fault injector.
+- **Per incident:** % of faults caught, median time to detect, false alarms per hour.
+- **Ablation:** each detector alone vs all three, to show each one earns its place.
+- **Thresholds** are set on validation data to hit a target false-alarm rate, never on test data.
+
+---
+
+## Phases
+
+Every phase ends the same way: **run it, check it works, commit, push.**
+Tests are written inside each phase, not at the end.
+
+### Phase 1: Foundation
+- Package layout, config from environment variables (`pydantic-settings`), `.env.example`.
+- `pyproject.toml` with pinned dependencies, ruff (lint), pytest.
+- GitHub Actions: lint + tests on every push.
+- Docker Compose with Redis + Postgres and health checks.
+
+**Done when:** CI is green; a fresh clone runs `pytest` and `docker compose up`.
+
+### Phase 2: Demo shop + traffic + fault injector
+- Services `shop`, `inventory`, `payment`, `shipping`; each calls the next and passes `request_id`.
+- Realistic plain-text logs (timestamps, levels, request IDs, amounts, timings).
+- Normal variety: browse / search / cart / checkout, cache hits and misses,
+  out-of-stock, occasional normal retries.
+- Traffic generator with a configurable rate.
+- Fault injector per service: slow, errors, skipped step, crash. Records start/end
+  times and every affected request ID.
+
+**Done when:** steady log traffic flows, and turning a fault on visibly changes the
+logs and is recorded.
+
+### Phase 3: Live pipeline
+- Shipper → Ingest API → `raw-logs` stream.
+- Parser workers: Drain3 + shared pattern registry (same template → same ID on every worker).
+- Session builder: closes a request on its last line plus a short grace period, or on timeout.
+- Sessions saved to Postgres (SQLAlchemy + Alembic migrations).
+
+**Done when:** shop traffic becomes complete, correctly grouped sessions in
+Postgres, live. A test checks grouping against what the shop sent.
+
+### Phase 4: Correct under failure
+- Ack after processing, reclaim messages from dead workers, idempotent upserts.
+- Retries + dead-letter stream, bounded queues + 429 backpressure, graceful shutdown.
+- **Chaos test:** kill workers mid-stream, then compare counts with what the shop sent.
+
+**Done when:** the chaos test shows **0 lost, 0 duplicated**.
+
+### Phase 5: Models
+- Build datasets from clean-traffic sessions in Postgres; split by time.
+- Train the LSTM and Isolation Forest on normal requests; add the rate detector.
+- Compare against simple baselines ("unseen sequence", "unseen event type").
+- Calibrate thresholds on validation; export to ONNX; save a versioned model folder.
+- Scoring workers load a model version and score live.
+
+**Done when:** one command trains a versioned model and writes a metrics report,
+and the scoring workers use it live.
+
+### Phase 6: Alerts + dashboard
+- Alert manager: one alert per service per incident, dedup, explanation, auto-resolve.
+- Query API + WebSocket.
+- Dashboard: live throughput, queue depth, alerts, alert detail, Break/Fix buttons.
+
+**Done when:** the 2-minute demo works end to end.
+
+### Phase 7: Measure & optimize
+- Load test: lines/s, end-to-end latency (line written → alert), p50/p99. State the hardware.
+- Scale scoring workers 1 → 2 → 4 and chart it.
+- Find the bottleneck; fix it (batching, bulk inserts, batched inference). ONNX vs PyTorch.
+
+**Done when:** a script generates the benchmark table and scaling chart.
+
+### Phase 8: Fault evaluation + polish
+- Automated run of 20+ injected faults: % caught, time to detect, false alarms/hour.
+- Ablation table: which detector catches which fault type.
+- Re-calibrate thresholds on recent clean traffic (handles drift).
+- Health checks, structured logs, API key on admin endpoints.
+- README: architecture diagram, results tables, demo GIF, one-command setup.
+
+**Done when:** anyone can clone, run one command, and reproduce every number in the README.
+
+### Bonus: HDFS benchmark
+Run the same detectors on the public [Loghub HDFS](https://github.com/logpai/loghub)
+dataset to show they work on real logs we didn't generate (`data/HDFS.log` is
+already downloaded). Things learned from a first attempt:
+- Only 3% of HDFS sessions are unique, so a random split puts copies of training
+  data in the test set. Use a **time split** and a **dedup split** instead.
+- On sequences never seen in training, the LSTM reached F1 ≈ 0.91; a "have I
+  seen this exact sequence" rule got 0.05.
+
+---
+
+## Project structure
+
+```
+src/logad/
+  common/      # config, Redis + DB clients, shared types
+  ingest/      # ingest API
+  parser/      # Drain3 workers + pattern registry
+  sessions/    # session builder
+  models/      # LSTM, Isolation Forest, rate detector, training, ONNX export
+  scoring/     # scoring workers
+  alerts/      # alert manager
+  api/         # query API + WebSocket + dashboard
+shop/          # demo services, traffic generator, fault injector
+shipper/       # log file tailer
+eval/          # fault evaluation, load tests, HDFS benchmark
+tests/
+migrations/
+docker-compose.yml
+```
+
+---
+
+## Rules
+
+1. Every number in the README comes from a script anyone can re-run.
+2. Never test on data the model trained on. Split by time, tune on validation.
+3. Labels come from the fault injector, never by hand.
+4. Every claim has a test ("survives a crash" → a test kills a worker).
+5. Report p99, not averages; state the hardware.
+6. Write down trade-offs and the alternatives we rejected.
