@@ -6,7 +6,7 @@ request with three detectors, and shows explained alerts on a dashboard.
 
 > **Status:** being built phase by phase. See [ROADMAP.md](ROADMAP.md).
 > Done: **Phase 1 (foundation)**, **Phase 2 (demo shop + traffic + faults)**,
-> **Phase 3 (live pipeline)**, **Phase 4 (correct under failure)**.
+> **Phase 3 (live pipeline)**, **Phase 4 (correct under failure)**, **Phase 5 (models)**.
 
 ## Quick start
 
@@ -108,6 +108,64 @@ with the sessions in Postgres. Latest result: [eval/results/chaos.md](eval/resul
 python eval/chaos.py --fresh      # ~4 minutes
 ```
 
+## Detecting anomalies
+
+Three detectors, because the shop's faults look completely different in the logs:
+
+| Detector | Looks at | Catches | How it scores |
+|---|---|---|---|
+| **LSTM** (next-event, DeepLog-style) | the order of events in a request | skipped / wrong / extra steps | surprise at the most surprising step ("after X expected Y, got Z") |
+| **Timing** | each part's time vs requests that took exactly the same path | slow requests | distance from normal, in robust spreads ("payment is 14 spreads slower") |
+| **Rate** | count of each event type per 10 s vs its usual level | error floods, traffic drops | spike / drop z-score; a brand-new error type stands out from 0 |
+
+All three learn from **normal traffic only**. Every session is scored live by
+the scoring workers (LSTM through ONNX Runtime, no PyTorch in the image) and
+saved in `scores` with which detector fired and why; rate anomalies go to
+`rate_anomalies`.
+
+### Results
+
+[eval/results/models.md](eval/results/models.md), from a fresh collection
+(12 min clean traffic + 10 scheduled faults on every service), evaluated once.
+Thresholds come from clean validation data only: at most 1 in 1,000 normal
+requests flagged.
+
+| Detector | Precision | Recall | False alarms | Skip | Slow | Error |
+|---|---|---|---|---|---|---|
+| Best simple rule (unseen sequence) | 100% | 19.4% | 0.0% | 100% | 0% | 100% |
+| **LSTM + timing** | **99.6%** | **96.1%** | **0.1%** | 100% | 95.2% | 100% |
+
+- Skipped steps and errors are easy: even a Markov chain gets them all here
+  (the shop has only ~22 distinct normal paths). The LSTM ties with it on this
+  shop; it is kept because it looks 10 steps back instead of 1, and it won
+  clearly on the HDFS benchmark.
+- Slow requests are the hard part (82% of the broken ones) and no simple rule
+  catches them. Misses: a +400 ms shop slowdown on checkouts, the slowest and
+  most variable request.
+
+### Design decisions (made on a separate development collection)
+
+| Decision | Why |
+|---|---|
+| Compare times with the **same exact path**, not the same request type | Request types mix cache hits with misses and declined with completed checkouts; slow recall 9% → 97% |
+| Count only **slower** than normal | Faster or shorter isn't this detector's job (missing steps are the LSTM's) |
+| Times as log(1 + ms/10) | A few ms of jitter on a 3 ms request is not an incident |
+| **Distance** instead of **Isolation Forest** for timing | Caught more (98.1% vs 96.9%), and the forest's score saturates: 50× slower scored barely higher |
+| Event order by file position within the same millisecond | Parallel parsers could deliver same-millisecond lines swapped |
+| Threshold a hair above the cut-off | Many normal sessions tie there (declined cards); ONNX vs PyTorch rounding flipped some |
+| Rate baseline frozen during an incident, accepted after 3 min | Stays flagged while it lasts, but a lasting change doesn't alert forever |
+
+### Train your own
+
+```bash
+pip install -e ".[train]" --extra-index-url https://download.pytorch.org/whl/cpu
+python eval/collect.py --fresh            # ~22 min: clean traffic, then faults
+python -m logad.models.dataset export     # sessions + labels -> data/shop/
+python -m logad.models.train              # trains, grades, saves models/<version>/
+```
+
+The scoring workers pick up a new `models/latest` within 30 seconds.
+
 ## Configuration
 
 Settings come from environment variables (`LOGAD_*`); defaults are in
@@ -122,7 +180,10 @@ src/logad/shipper/  tails the shop's log files, sends new lines to ingest (at le
 src/logad/ingest/   ingest API: POST /ingest -> Redis stream "raw-logs"
 src/logad/parser/   parser workers: raw lines -> events with shared template IDs, 4 shards
 src/logad/sessions/ session builder: events of one request -> one row in Postgres
-eval/               chaos test (and later: evaluations, benchmarks) + their results
+src/logad/models/   dataset, baselines, LSTM, timing, training, ONNX serving
+src/logad/scoring/  scoring workers: every saved session -> scores
+src/logad/rates/    rate detector: event counts per 10 s -> rate_anomalies
+eval/               chaos test, dataset collection, results
 migrations/         database migrations (Alembic); `alembic upgrade head` applies them
 src/shop/           demo shop: services, traffic generator, fault injector
 tests/              pytest tests (integration tests need docker compose up)

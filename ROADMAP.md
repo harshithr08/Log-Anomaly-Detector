@@ -19,7 +19,7 @@ Three things the project proves, each with a number from a re-runnable script:
 
 1. `docker compose up` → open the dashboard. Traffic is flowing through the shop.
 2. Click **"Break payment: slow"** → an alert appears: *payment service, latency
-   6× normal, caught by Isolation Forest, 37 affected requests*.
+   6× normal, caught by the timing detector, 37 affected requests*.
 3. Click **"Break inventory: skip step"** → an alert: *unexpected event order,
    caught by the LSTM: expected `stock reserved`, got `payment started`*.
 4. Kill a worker → the pipeline keeps going; counters show **0 lost, 0 duplicated**.
@@ -33,7 +33,7 @@ Three things the project proves, each with a number from a re-runnable script:
 - [x] Phase 2: Demo shop + traffic + fault injector
 - [x] Phase 3: Live pipeline
 - [x] Phase 4: Correct under failure
-- [ ] Phase 5: Models
+- [x] Phase 5: Models
 - [ ] Phase 6: Alerts + dashboard
 - [ ] Phase 7: Measure & optimize
 - [ ] Phase 8: Fault evaluation + polish
@@ -65,7 +65,7 @@ Three things the project proves, each with a number from a re-runnable script:
                                    ▼
                        [Redis Stream: sessions]
                                    ▼
-                       Scoring workers ×N: LSTM + Isolation Forest
+                       Scoring workers ×N: LSTM + timing
                        Rate detector: event counts per 10s
                                    ▼
                        Alert manager (group, explain, auto-resolve)
@@ -101,8 +101,12 @@ Every box is its own process in Docker Compose, so each part scales and fails on
 | Detector | Looks at | Catches | Trained on |
 |---|---|---|---|
 | **LSTM next-event** (DeepLog-style) | Order of events in a request | Skipped, wrong or extra steps | Normal requests only |
-| **Isolation Forest** | Numbers per request: latency, per-service time, retries, errors | Slow or retry-heavy requests | Normal requests only |
+| **Timing** | Each part's time vs requests that took exactly the same path | Slow requests | Normal requests only |
 | **Rate detector** | Count of each event type per 10s vs rolling average | Error floods, traffic drops | Nothing (statistics) |
+
+*Changed in Phase 5:* the timing detector replaced the Isolation Forest. On the
+development data it caught more slow requests, and the forest's score saturates
+(a request 50× slower scored barely higher). See README, "Design decisions".
 
 Every alert says **which detector fired and why**.
 
@@ -137,10 +141,10 @@ and a push. Tests are written inside each phase, not at the end.
 | 9 | 4 | Ack after processing, reclaim from dead workers, idempotent writes ✅ |
 | 10 | 4 | Dead-letter stream, backpressure (429), graceful shutdown ✅ |
 | 11 | 4 | Chaos test: kill workers, prove 0 lost / 0 duplicated ✅ |
-| 12 | 5 | Dataset builder + baselines |
-| 13 | 5 | LSTM + Isolation Forest training, threshold calibration, versioned models |
-| 14 | 5 | ONNX export + scoring workers |
-| 15 | 5 | Rate detector |
+| 12 | 5 | Dataset builder + baselines ✅ |
+| 13 | 5 | LSTM + timing detector training, threshold calibration, versioned models ✅ (+ fixes from the live check) |
+| 14 | 5 | ONNX export + scoring workers ✅ |
+| 15 | 5 | Rate detector ✅ |
 | 16 | 6 | Alert manager: group, explain, auto-resolve |
 | 17 | 6 | Query API + WebSocket |
 | 18 | 6 | Dashboard with Break/Fix buttons |
@@ -188,7 +192,7 @@ Postgres, live. A test checks grouping against what the shop sent.
 
 ### Phase 5: Models
 - Build datasets from clean-traffic sessions in Postgres; split by time.
-- Train the LSTM and Isolation Forest on normal requests; add the rate detector.
+- Train the LSTM and the timing detector on normal requests; add the rate detector.
 - Compare against simple baselines ("unseen sequence", "unseen event type").
 - Calibrate thresholds on validation; export to ONNX; save a versioned model folder.
 - Scoring workers load a model version and score live.
@@ -239,7 +243,9 @@ src/logad/
   ingest/      # ingest API
   parser/      # Drain3 workers + pattern registry
   sessions/    # session builder
-  models/      # LSTM, Isolation Forest, rate detector, training, ONNX export
+  models/      # dataset, baselines, LSTM, timing, training, ONNX serving
+  scoring/     # scoring workers
+  rates/       # rate detector
   scoring/     # scoring workers
   alerts/      # alert manager
   api/         # query API + WebSocket + dashboard
