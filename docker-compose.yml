@@ -99,6 +99,13 @@ services:
       redis: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
 
+  sessions:
+    <<: *pipeline
+    command: ["python", "-m", "logad.sessions"]
+    depends_on:
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
   # ── demo shop (the system being monitored) ──────────────────────────────────
   shop:
     <<: *shop-service
