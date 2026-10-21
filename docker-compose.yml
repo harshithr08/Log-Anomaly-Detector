@@ -90,6 +90,15 @@ services:
     depends_on:
       ingest: { condition: service_healthy }
 
+  parser:
+    <<: *pipeline
+    command: ["python", "-m", "logad.parser"]
+    deploy:
+      replicas: 2 # two workers share the raw-logs stream through one consumer group
+    depends_on:
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
   # ── demo shop (the system being monitored) ──────────────────────────────────
   shop:
     <<: *shop-service

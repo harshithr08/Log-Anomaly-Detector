@@ -6,9 +6,12 @@ Each field can be overridden by an environment variable named LOGAD_<FIELD>
 docker-compose.yml, so local development works with no setup.
 """
 
+import os
+import socket
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +21,12 @@ class Settings(BaseSettings):
     redis_url: str = "redis://127.0.0.1:6379/0"
     database_url: str = "postgresql+asyncpg://logad:logad@127.0.0.1:5433/logad"
     stream_prefix: str = "logad"  # every Redis key starts with this
+    shard_count: int = 4  # events streams; a request's events always go to one shard
+    # This process's name inside a Redis consumer group.
+    consumer_name: str = Field(default_factory=lambda: f"{socket.gethostname()}-{os.getpid()}")
+
+    # parser
+    parser_batch_size: int = 200
 
     # shipper
     ingest_url: str = "http://127.0.0.1:8100"
