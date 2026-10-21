@@ -109,6 +109,18 @@ services:
       redis: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
 
+  scoring:
+    <<: *pipeline
+    command: ["python", "-m", "logad.scoring"]
+    volumes:
+      - ./models:/app/models:ro # trained on the host: python -m logad.models.train
+    environment:
+      <<: *pipeline-env
+      LOGAD_MODELS_DIR: /app/models
+    depends_on:
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
   # ── demo shop (the system being monitored) ──────────────────────────────────
   shop:
     <<: *shop-service

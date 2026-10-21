@@ -19,7 +19,7 @@ import gzip
 import json
 import shutil
 import sys
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from sqlalchemy import text
@@ -61,6 +61,27 @@ class Splits:
     info: dict = field(default_factory=dict)
 
 
+def session_from_row(row, templates: dict[int, str]) -> Session:
+    """A sessions-table row -> Session, with template IDs replaced by their text."""
+    return Session(
+        session_id=row.session_id,
+        started_at=row.started_at.timestamp(),
+        ended_at=row.ended_at.timestamp(),
+        closed_by=row.closed_by,
+        events=[
+            {
+                "ts": event["ts"],
+                "service": event["service"],
+                "level": event["level"],
+                "template": templates[event["template_id"]],
+                "message": event["message"],
+                "params": event["params"],
+            }
+            for event in row.events
+        ],
+    )
+
+
 def _ground_truth(directory: Path) -> dict[str, str]:
     """request ID -> "service kind" for every request the fault injector broke."""
     broken = {}
@@ -100,26 +121,10 @@ def export(
     path = out_dir / "sessions.jsonl.gz"
     with gzip.open(path, "wt", encoding="utf-8") as f:
         for row in rows:
-            record = {
-                "session_id": row.session_id,
-                "started_at": row.started_at.timestamp(),
-                "ended_at": row.ended_at.timestamp(),
-                "closed_by": row.closed_by,
-                "events": [
-                    {
-                        "ts": event["ts"],
-                        "service": event["service"],
-                        "level": event["level"],
-                        "template": templates[event["template_id"]],
-                        "message": event["message"],
-                        "params": event["params"],
-                    }
-                    for event in row.events
-                ],
-                "label": int(row.session_id in broken),
-                "fault": broken.get(row.session_id),
-            }
-            f.write(json.dumps(record) + "\n")
+            session = session_from_row(row, templates)
+            session.label = int(row.session_id in broken)
+            session.fault = broken.get(row.session_id)
+            f.write(json.dumps(asdict(session)) + "\n")
     shutil.copy(collection, out_dir / "collection.json")
     print(f"Exported {len(rows):,} sessions ({len(broken):,} broken requests) to {path}")
     return path

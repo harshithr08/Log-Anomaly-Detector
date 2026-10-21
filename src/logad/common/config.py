@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     session_end_service: str = "shop"  # the last line of a request is this service's
     session_end_prefix: str = "Completed "  # ... line starting with this
 
+    # scoring
+    models_dir: Path = Path("models")  # holds <version>/ folders and a "latest" file
+    scoring_batch_size: int = 200
+
     # shipper
     ingest_url: str = "http://127.0.0.1:8100"
     shipper_log_dir: Path = Path("runtime/logs")

@@ -174,10 +174,15 @@ class SessionBuilder:
         for session in sessions:
             for stream, entry_id in session.entry_ids:
                 acks.setdefault(stream, []).append(entry_id)
-        async with self.redis.pipeline(transaction=False) as pipe:
+        # Announce the sessions for scoring and ack their events in one
+        # transaction: a crash before it means the events are still pending, the
+        # sessions get rebuilt (the insert above is then a no-op) and announced.
+        async with self.redis.pipeline(transaction=True) as tx:
+            for session in sessions:
+                tx.xadd(self.keys.sessions, {"session_id": session.session_id})
             for stream, entry_ids in acks.items():
-                pipe.xack(stream, GROUP, *entry_ids)
-            await pipe.execute()
+                tx.xack(stream, GROUP, *entry_ids)
+            await tx.execute()
         return len(sessions)
 
 
