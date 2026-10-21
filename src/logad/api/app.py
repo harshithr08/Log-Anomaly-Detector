@@ -71,8 +71,11 @@ def create_app(
     keys = Keys(settings.stream_prefix)
 
     async def push_forever(app: FastAPI):
-        """Sample stats once a second and push them to every open dashboard."""
-        while True:
+        """Sample stats once a second and push them to every open dashboard,
+        until app.state.stop is set. It is stopped by that flag, never cancelled:
+        cancelling it in the middle of a database query could hang the
+        database driver's cleanup at shutdown."""
+        while not app.state.stop.is_set():
             try:
                 stats = await app.state.sampler.sample()
                 message = {"stats": stats, "open_alerts": await open_alerts(app)}
@@ -83,7 +86,8 @@ def create_app(
                         app.state.sockets.discard(socket)
             except Exception as error:  # e.g. Postgres briefly down: try again
                 log.warning("Stats sample failed: %r", error)
-            await asyncio.sleep(PUSH_EVERY_S)
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(app.state.stop.wait(), PUSH_EVERY_S)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -94,11 +98,11 @@ def create_app(
             app.state.redis, app.state.engine, keys, settings.shard_count
         )
         app.state.sockets = set()
+        app.state.stop = asyncio.Event()
         pusher = asyncio.create_task(push_forever(app))
         yield
-        pusher.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await pusher
+        app.state.stop.set()  # finishes its current round, then returns
+        await pusher
         await app.state.shop.aclose()
         await app.state.redis.aclose()
         await app.state.engine.dispose()
