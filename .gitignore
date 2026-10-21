@@ -11,10 +11,10 @@ __pycache__/
 .env
 
 # Datasets and generated data
-data/
+/data/
 
 # Trained models are build outputs
-models/
+/models/
 
 # Shop logs and ground truth written at runtime
-runtime/
+/runtime/

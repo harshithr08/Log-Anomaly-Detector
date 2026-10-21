@@ -13,13 +13,23 @@ dependencies = [
     "drain3==0.9.11",
     "fastapi==0.156.3",
     "httpx==0.28.1",
+    "joblib==1.6.0",
+    "numpy==2.4.6",
+    "onnxruntime==1.31.0",
     "pydantic-settings==2.16.1",
     "redis==8.1.0",
+    "scikit-learn==1.9.1",
     "sqlalchemy[asyncio]==2.1.5",
     "uvicorn==0.54.0",
 ]
 
 [project.optional-dependencies]
+# Training only (not in the Docker image). For the small CPU build of PyTorch:
+#   pip install -e ".[train]" --extra-index-url https://download.pytorch.org/whl/cpu
+train = [
+    "onnx==1.23.2",
+    "torch==2.14.1",
+]
 dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",

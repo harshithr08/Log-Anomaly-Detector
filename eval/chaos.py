@@ -19,52 +19,24 @@ Exit code 0 = no loss, no duplicates. Writes eval/results/chaos.md.
 
 import argparse
 import asyncio
-import os
 import random
 import re
-import shutil
-import subprocess
 import sys
 import time
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
-from redis.asyncio import Redis
 from sqlalchemy import text
+from stack import bring_up, compose, containers, docker, start_stack, wait_until_drained
 
 from logad.common.config import get_settings
 from logad.common.db import make_engine
-from logad.common.groups import backlog
-from logad.common.streams import BUILDERS, PARSERS, Keys
 
 VICTIMS = ["parser", "sessions", "shipper", "ingest"]
 LOG_DIR = Path("runtime/logs")
 RESULTS = Path("eval/results/chaos.md")
 REQUEST_ID = re.compile(r"\[req=([^\]]+)\]")
-
-
-def compose(*args: str, check: bool = True) -> str:
-    result = subprocess.run(
-        ["docker", "compose", *args], capture_output=True, text=True, check=False
-    )
-    if check and result.returncode != 0:
-        sys.exit(f"docker compose {' '.join(args)} failed:\n{result.stderr}")
-    return result.stdout.strip()
-
-
-def containers(service: str) -> list[str]:
-    return compose("ps", "-q", service).split()
-
-
-def bring_up(service: str) -> None:
-    """Start the service's missing or stopped containers (two parsers)."""
-    scale = ["--scale", "parser=2"] if service == "parser" else []
-    compose("up", "-d", "--no-deps", *scale, service)
-
-
-def docker(*args: str) -> None:
-    subprocess.run(["docker", *args], capture_output=True, check=True)
 
 
 def wreak_havoc(duration: float, every: float, rng: random.Random) -> list[str]:
@@ -89,28 +61,6 @@ def wreak_havoc(duration: float, every: float, rng: random.Random) -> list[str]:
             events.append(f"killed {service} {target[:12]}, restarted it")
         print(f"  {events[-1]}", flush=True)
     return events
-
-
-async def wait_until_drained(timeout: float) -> float:
-    """Wait until every raw line is parsed and every event is in a saved
-    session. Returns how long it took."""
-    settings = get_settings()
-    keys = Keys(settings.stream_prefix)
-    redis = Redis.from_url(settings.redis_url, decode_responses=True)
-    started = time.monotonic()
-    calm = 0
-    try:
-        while time.monotonic() - started < timeout:
-            waiting = await backlog(redis, keys.raw_logs, PARSERS)
-            for shard in range(settings.shard_count):
-                waiting += await backlog(redis, keys.events(shard), BUILDERS)
-            calm = calm + 1 if waiting == 0 else 0
-            if calm >= 3:
-                return time.monotonic() - started
-            await asyncio.sleep(3)
-    finally:
-        await redis.aclose()
-    sys.exit(f"pipeline did not drain within {timeout:.0f}s")
 
 
 async def check() -> dict:
@@ -185,16 +135,7 @@ def main():
     parser.add_argument("--fresh", action="store_true", help="start from empty data")
     args = parser.parse_args()
 
-    if args.fresh:
-        compose("down", "-v")
-        shutil.rmtree("runtime", ignore_errors=True)
-    print("Starting the stack...", flush=True)
-    subprocess.run(
-        ["docker", "compose", "up", "-d", "--wait", "--build"],
-        env={**os.environ, "TRAFFIC_RATE": str(args.rate)},
-        check=True,
-        capture_output=True,
-    )
+    start_stack(args.rate, args.fresh)
     time.sleep(5)
 
     print(f"Chaos for {args.duration:.0f}s:", flush=True)
