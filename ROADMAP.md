@@ -37,8 +37,7 @@ Three things the project proves, each with a number from a re-runnable script:
 - [x] Phase 6: Alerts + dashboard
 - [x] Phase 7: Measure & optimize
 - [x] Phase 8: Fault evaluation + polish
-- [ ] Phase 9: Public deployment
-- [ ] Bonus: HDFS benchmark
+- [x] Phase 9: Public deployment (ready to deploy; not hosted for now)
 
 ---
 
@@ -156,7 +155,6 @@ and a push. Tests are written inside each phase, not at the end.
 | 23 | 8 | Final README: diagram, results, demo GIF ✅ |
 | 24 | 9 | Public demo mode: limited Break, self-fixing faults, retention ✅ |
 | 25 | 9 | Production stack (Caddy HTTPS), server setup, auto-deploy ✅ |
-| 26 | 9 | Go live: public link in the README |
 
 ### Phase 1: Foundation
 - Package layout, config from environment variables (`pydantic-settings`), `.env.example`.
@@ -235,14 +233,9 @@ and the scoring workers use it live.
 
 **Done when:** a public link shows the live demo, and a push updates it.
 
-### Bonus: HDFS benchmark
-Run the same detectors on the public [Loghub HDFS](https://github.com/logpai/loghub)
-dataset to show they work on real logs we didn't generate (`data/HDFS.log` is
-already downloaded). Things learned from a first attempt:
-- Only 3% of HDFS sessions are unique, so a random split puts copies of training
-  data in the test set. Use a **time split** and a **dedup split** instead.
-- On sequences never seen in training, the LSTM reached F1 ≈ 0.91; a "have I
-  seen this exact sequence" rule got 0.05.
+*Status:* everything is built and tested locally (HTTPS, limits, self-fixing
+faults, auto-deploy); hosting is skipped for now. To go live, follow
+[docs/DEPLOY.md](docs/DEPLOY.md): one script on any Ubuntu server.
 
 ---
 
@@ -258,11 +251,11 @@ src/logad/
   models/      # dataset, baselines, LSTM, timing, training, ONNX serving
   scoring/     # scoring workers
   rates/       # rate detector
-  scoring/     # scoring workers
+  retention/   # deletes old data (public deployment)
   alerts/      # alert manager
   api/         # query API + WebSocket + dashboard
 src/shop/      # demo services, traffic generator, fault injector
-eval/          # fault evaluation, load tests, HDFS benchmark
+eval/          # chaos test, fault evaluation, load tests, demo GIF
 tests/
 migrations/
 docker-compose.yml

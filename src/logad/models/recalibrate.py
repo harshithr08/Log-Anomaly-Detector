@@ -1,8 +1,8 @@
 """
 recalibrate.py — reset the thresholds on recent normal traffic (drift).
 
-Normal behaviour shifts over time (the HDFS benchmark showed it: a threshold
-from last week flags too much this week). This re-scores the last few hours
+Normal behaviour shifts over time (new products, more traffic), so a
+threshold from last week may flag too much this week. This re-scores the last few hours
 of normal traffic with the current model and sets each threshold again to the
 same budget: at most 1 in 1,000 normal requests flagged. Sessions during an
 alert (plus a minute around it) and sessions that never finished are left out.

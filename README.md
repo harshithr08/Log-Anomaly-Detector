@@ -140,7 +140,7 @@ parser; `hiredis` and fewer checks gave 9,116.
 | Redis Streams, not Kafka | Same ideas (consumer groups, acks, replay) with far less to run |
 | Timing compared with the **same exact path** | Grouping by request type mixed cache hits with misses; slow recall 9% → 97% |
 | Distance, not Isolation Forest, for timing | Caught more, and the forest's score saturates (50× slower scored barely higher) |
-| LSTM kept although a Markov chain ties on this shop | Looks 10 steps back instead of 1; won clearly on the HDFS benchmark |
+| LSTM kept although a Markov chain ties on this shop | Looks 10 steps back instead of 1, so it can catch order problems that span several steps |
 | Thresholds from a false-alarm budget on normal data | Never tuned on test data; re-calibrated on recent traffic for drift (`python -m logad.models.recalibrate`) |
 | Session time from log timestamps + watermark | Wall-clock time closed sessions early whenever the pipeline stalled |
 | One alert per service, resolve below alert level | Single flags are noise (1 in 1,000); "no evidence at all" never happens |
