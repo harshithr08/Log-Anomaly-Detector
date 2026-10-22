@@ -10,7 +10,7 @@ Fault kinds:
 Ground truth is an append-only JSON-lines file per service:
     {"event": "fault_start", "fault_id": ..., "kind": "slow", ...}
     {"event": "affected", "fault_id": ..., "request_id": ...}   # one per broken request
-    {"event": "fault_end", "fault_id": ..., "reason": "fixed" | "restarted"}
+    {"event": "fault_end", "fault_id": ..., "reason": "fixed" | "expired" | "restarted"}
 
 Only the evaluation reads these files — never the pipeline. They are the answer key.
 """
@@ -36,6 +36,7 @@ class FaultSpec(BaseModel):
     kind: FaultKind
     probability: float = Field(1.0, ge=0.0, le=1.0, description="share of requests affected")
     delay_ms: int = Field(2000, ge=0, description="extra delay for 'slow'")
+    duration_s: float | None = Field(None, gt=0, description="fix itself after this long")
 
 
 class GroundTruth:
@@ -60,17 +61,26 @@ class GroundTruth:
 class FaultInjector:
     """Holds the service's active fault (at most one) and records its effects."""
 
-    def __init__(self, service: str, ground_truth: GroundTruth, rng: random.Random | None = None):
+    def __init__(
+        self,
+        service: str,
+        ground_truth: GroundTruth,
+        rng: random.Random | None = None,
+        clock=time.monotonic,
+    ):
         self.service = service
         self.ground_truth = ground_truth
         self.rng = rng or random.Random()
+        self.clock = clock
         self.active: FaultSpec | None = None
         self.fault_id: str | None = None
+        self.expires_at: float | None = None
 
     def start(self, spec: FaultSpec) -> str:
         if self.active:
             self.stop()
         self.active, self.fault_id = spec, uuid.uuid4().hex[:12]
+        self.expires_at = self.clock() + spec.duration_s if spec.duration_s else None
         self.ground_truth.write(
             "fault_start", fault_id=self.fault_id, service=self.service, **spec.model_dump()
         )
@@ -81,11 +91,21 @@ class FaultInjector:
             self.ground_truth.write(
                 "fault_end", fault_id=self.fault_id, service=self.service, reason=reason
             )
-        self.active, self.fault_id = None, None
+        self.active, self.fault_id, self.expires_at = None, None, None
+
+    def expire(self) -> None:
+        """End a fault whose duration is up. Checked on every request and status
+        call (the shop always has traffic), so no timer task is needed."""
+        if self.expires_at is not None and self.clock() >= self.expires_at:
+            self.stop(reason="expired")
+
+    def fixes_in_s(self) -> float | None:
+        return None if self.expires_at is None else max(0.0, self.expires_at - self.clock())
 
     def hits(self, kind: FaultKind) -> bool:
         """Should the current request be broken by an active fault of this kind?
         If yes, the request ID is recorded as affected."""
+        self.expire()
         if self.active is None or self.active.kind != kind:
             return False
         if self.rng.random() >= self.active.probability:
@@ -127,10 +147,12 @@ def admin_router(injector: FaultInjector) -> APIRouter:
     router = APIRouter(prefix="/admin")
 
     def status():
+        injector.expire()
         return {
             "service": injector.service,
             "fault_id": injector.fault_id,
             "fault": injector.active.model_dump() if injector.active else None,
+            "fixes_in_s": injector.fixes_in_s(),
         }
 
     @router.get("/fault")

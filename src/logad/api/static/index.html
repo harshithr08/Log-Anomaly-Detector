@@ -330,7 +330,13 @@ async function setFault(service, spec, retried = false) {
       return setFault(service, spec, true);
     }
   }
+  if (response.status === 429) alert((await response.json()).detail);  // public demo limit
   refreshFaults();
+}
+function fixesIn(fault) {
+  if (fault.fixes_in_s == null) return "";
+  const s = Math.ceil(fault.fixes_in_s);
+  return ` · fixes itself in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 async function refreshFaults() {
   try {
@@ -341,7 +347,7 @@ async function refreshFaults() {
       const broken = fault && fault !== "unreachable";
       node.className = `fault ${broken ? "broken" : fault === "unreachable" ? "broken" : "healthy"}`;
       node.textContent = fault === "unreachable" ? "⚠ unreachable (restarting?)"
-        : broken ? `⚠ ${fault.kind}${fault.kind === "slow" ? ` +${fault.delay_ms} ms` : ""}` : "✓ healthy";
+        : broken ? `⚠ ${fault.kind}${fault.kind === "slow" ? ` +${fault.delay_ms} ms` : ""}${fixesIn(fault)}` : "✓ healthy";
     }
   } catch { /* try again on the next tick */ }
 }

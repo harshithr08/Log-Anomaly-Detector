@@ -87,3 +87,15 @@ def test_hits_records_the_current_request(tmp_path):
     finally:
         request_id_var.reset(token)
     assert injector.ground_truth.events()[-1]["request_id"] == "abc123"
+
+
+def test_a_fault_with_a_duration_fixes_itself(tmp_path):
+    now = [100.0]
+    injector = FaultInjector("payment", GroundTruth(tmp_path / "p.jsonl"), clock=lambda: now[0])
+    fault_id = injector.start(FaultSpec(kind="error", duration_s=120))
+    now[0] = 219.0
+    assert injector.hits("error") and injector.fixes_in_s() == 1.0
+    now[0] = 220.0
+    assert not injector.hits("error") and injector.active is None
+    last = injector.ground_truth.events()[-1]
+    assert (last["event"], last["fault_id"], last["reason"]) == ("fault_end", fault_id, "expired")

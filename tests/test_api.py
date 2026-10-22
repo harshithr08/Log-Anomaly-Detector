@@ -194,3 +194,32 @@ async def _score_now(database_url):
             )
         )
     await engine.dispose()
+
+
+def test_public_breaks_are_limited_and_fix_themselves(settings, database_url, shop):
+    router = InProcessRouter()
+    router.apps = shop.apps
+    public = settings.model_copy(
+        update={
+            "database_url": database_url,
+            "api_key": "s3cret",
+            "public_breaks": True,
+            "public_fault_s": 120.0,
+            "public_breaks_per_minute": 2,
+        }
+    )
+    with TestClient(create_app(public, shop.settings, router)) as client:
+        asked = {"kind": "slow", "duration_s": 3600}
+        first = client.post("/api/faults/payment", json=asked).json()
+        assert first["fault"]["duration_s"] == 120.0  # capped for the public
+        assert 0 < client.get("/api/faults").json()["payment"]["fixes_in_s"] <= 120
+        assert client.delete("/api/faults/payment").is_success  # fixing is always fine
+        client.post("/api/faults/payment", json={"kind": "error"})
+        limited = client.post("/api/faults/payment", json={"kind": "error"})
+        if limited.status_code != 429:  # the minute rolled over between calls
+            limited = client.post("/api/faults/payment", json={"kind": "error"})
+        assert limited.status_code == 429 and "Retry-After" in limited.headers
+        admin = {"X-API-Key": "s3cret"}  # the key skips both limits
+        forever = client.post("/api/faults/payment", json={"kind": "skip"}, headers=admin)
+        assert forever.is_success and forever.json()["fault"]["duration_s"] is None
+        client.delete("/api/faults/payment", headers=admin)

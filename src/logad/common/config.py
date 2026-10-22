@@ -57,6 +57,17 @@ class Settings(BaseSettings):
 
     # API: admin actions (Break/Fix) need this key in X-API-Key when it is set
     api_key: str | None = None
+    # Public demo: Break/Fix open to everyone, within limits: each fault fixes
+    # itself after public_fault_s, and each visitor (IP) may break things
+    # public_breaks_per_minute times a minute. Callers with the key skip both.
+    public_breaks: bool = False
+    public_fault_s: float = 120.0
+    public_breaks_per_minute: int = 3
+
+    # retention: delete sessions, scores and rate anomalies older than this,
+    # and resolved alerts too (None: keep everything, as for evaluations)
+    retention_hours: float | None = None
+    retention_every_s: float = 600.0
 
     # scoring
     models_dir: Path = Path("models")  # holds <version>/ folders and a "latest" file

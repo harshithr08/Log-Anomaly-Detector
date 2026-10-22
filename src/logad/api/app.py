@@ -9,9 +9,11 @@ app.py — the query API, the live WebSocket and (from static/) the dashboard.
     GET    /api/sessions/{id}         one request: its events and its scores
     GET    /api/rate-anomalies        the latest rate anomalies
     GET    /api/faults                the shop's active faults
-    POST   /api/faults/{service}      break a shop service  {"kind", "probability", "delay_ms"}
+    POST   /api/faults/{service}      break a shop service
+                                      {"kind", "probability", "delay_ms", "duration_s"}
     DELETE /api/faults/{service}      fix it
-                                      (both need the X-API-Key header if LOGAD_API_KEY is set)
+                                      (both need the X-API-Key header if LOGAD_API_KEY is
+                                      set, unless LOGAD_PUBLIC_BREAKS: then anyone, limited)
     WS     /ws                        every second: stats + open alerts
     GET    /                          the dashboard (static/index.html)
 
@@ -22,12 +24,21 @@ import asyncio
 import contextlib
 import logging
 import secrets
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis
@@ -48,6 +59,7 @@ class FaultRequest(BaseModel):
     kind: Literal["slow", "error", "skip", "crash"]
     probability: float = Field(1.0, ge=0.0, le=1.0)
     delay_ms: int = Field(1500, ge=0, le=30_000)
+    duration_s: float | None = Field(None, gt=0, le=86_400)  # None: until fixed
 
 
 def _alert_json(row) -> dict:
@@ -157,10 +169,33 @@ def create_app(
             raise HTTPException(503, checks)
         return {"status": "ready", **checks}
 
-    async def require_key(x_api_key: str | None = Header(None)):
-        """Admin actions need the key when one is configured (always, once public)."""
-        if settings.api_key and not secrets.compare_digest(x_api_key or "", settings.api_key):
+    async def caller(x_api_key: str | None = Header(None)) -> str:
+        """'admin' (no limits) or 'public' (limited, see Settings.public_breaks).
+        Without a configured key, everyone is admin: the local demo."""
+        if settings.api_key and secrets.compare_digest(x_api_key or "", settings.api_key):
+            return "admin"
+        if settings.public_breaks:
+            return "public"
+        if settings.api_key:
             raise HTTPException(401, "missing or wrong X-API-Key")
+        return "admin"
+
+    async def check_break_limit(request: Request) -> None:
+        """At most public_breaks_per_minute per visitor, counted in Redis so the
+        limit holds across API restarts. Behind the proxy, request.client is the
+        visitor (uvicorn --proxy-headers)."""
+        minute = int(time.time() // 60)
+        key = f"{settings.stream_prefix}:breaks:{request.client.host}:{minute}"
+        count = await app.state.redis.incr(key)
+        if count == 1:
+            await app.state.redis.expire(key, 60)
+        if count > settings.public_breaks_per_minute:
+            retry = 60 - int(time.time() % 60)
+            raise HTTPException(
+                429,
+                f"too many breaks; try again in {retry} s",
+                headers={"Retry-After": str(retry)},
+            )
 
     @app.get("/api/stats")
     async def stats():
@@ -263,21 +298,32 @@ def create_app(
         result = {}
         for service in SERVICES:
             try:
-                response = await app.state.shop.get(_fault_url(service))
-                result[service] = response.json()["fault"]
+                body = (await app.state.shop.get(_fault_url(service))).json()
+                fault = body["fault"]
+                if fault:
+                    fault["fixes_in_s"] = body.get("fixes_in_s")
+                result[service] = fault
             except httpx.HTTPError:
                 result[service] = "unreachable"
         return result
 
-    @app.post("/api/faults/{service}", dependencies=[Depends(require_key)])
-    async def break_service(service: str, fault: FaultRequest):
+    @app.post("/api/faults/{service}")
+    async def break_service(
+        service: str, fault: FaultRequest, request: Request, who: str = Depends(caller)
+    ):
+        url = _fault_url(service)
+        if who == "public":
+            await check_break_limit(request)
+            fault.duration_s = min(
+                fault.duration_s or settings.public_fault_s, settings.public_fault_s
+            )
         try:
-            response = await app.state.shop.post(_fault_url(service), json=fault.model_dump())
+            response = await app.state.shop.post(url, json=fault.model_dump())
         except httpx.HTTPError as error:
             raise HTTPException(502, f"{service} unreachable: {type(error).__name__}") from error
         return response.json()
 
-    @app.delete("/api/faults/{service}", dependencies=[Depends(require_key)])
+    @app.delete("/api/faults/{service}", dependencies=[Depends(caller)])
     async def fix_service(service: str):
         try:
             response = await app.state.shop.delete(_fault_url(service))
