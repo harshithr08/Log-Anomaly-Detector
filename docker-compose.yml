@@ -134,6 +134,7 @@ services:
       SHOP_INVENTORY_URL: http://inventory:8000
       SHOP_PAYMENT_URL: http://payment:8000
       SHOP_SHIPPING_URL: http://shipping:8000
+      LOGAD_API_KEY: ${LOGAD_API_KEY:-} # empty: Break/Fix open (local demo); set it when public
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
       interval: 5s

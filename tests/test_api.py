@@ -153,3 +153,44 @@ def test_websocket_pushes_stats_and_open_alerts(client):
     assert {"lines_per_s", "sessions_per_s", "flagged_per_s", "backlog"} <= set(message["stats"])
     assert [a["service"] for a in message["open_alerts"]] == ["payment"]
     assert message["stats"]["open_alerts"] == 1
+
+
+def test_break_and_fix_need_the_key_when_one_is_set(settings, database_url, shop):
+    router = InProcessRouter()
+    router.apps = shop.apps
+    locked = settings.model_copy(update={"database_url": database_url, "api_key": "s3cret"})
+    with TestClient(create_app(locked, shop.settings, router)) as client:
+        assert client.post("/api/faults/payment", json={"kind": "slow"}).status_code == 401
+        wrong = {"X-API-Key": "nope"}
+        assert client.delete("/api/faults/payment", headers=wrong).status_code == 401
+        right = {"X-API-Key": "s3cret"}
+        assert client.post("/api/faults/payment", json={"kind": "slow"}, headers=right).is_success
+        assert client.delete("/api/faults/payment", headers=right).is_success
+        assert client.get("/api/alerts").status_code == 200  # reading stays open
+
+
+def test_ready_only_while_requests_are_being_scored(settings, database_url):
+    app = create_app(settings.model_copy(update={"database_url": database_url}))
+    with TestClient(app) as client:
+        not_yet = client.get("/api/ready")
+        assert not_yet.status_code == 503
+        assert "no requests scored" in not_yet.json()["detail"]["scoring"]
+        asyncio.run(_score_now(database_url))
+        assert client.get("/api/ready").json()["scoring"] == "model v9"
+
+
+async def _score_now(database_url):
+    engine = make_engine(database_url)
+    async with engine.begin() as conn:
+        await conn.execute(
+            Score.__table__.insert().values(
+                session_id="fresh",
+                model_version="v9",
+                lstm_score=0.1,
+                timing_score=0.1,
+                anomalous=False,
+                detectors=[],
+                explanation={},
+            )
+        )
+    await engine.dispose()

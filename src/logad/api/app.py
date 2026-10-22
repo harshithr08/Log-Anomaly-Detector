@@ -1,6 +1,8 @@
 """
 app.py — the query API, the live WebSocket and (from static/) the dashboard.
 
+    GET    /api/health                Redis and Postgres reachable (liveness)
+    GET    /api/ready                 ... and a model is scoring right now (readiness)
     GET    /api/stats                 live numbers (sampled every second)
     GET    /api/alerts                ?status=open|resolved|all&limit=&before_id=
     GET    /api/alerts/{id}           one alert with its example requests in full
@@ -9,6 +11,7 @@ app.py — the query API, the live WebSocket and (from static/) the dashboard.
     GET    /api/faults                the shop's active faults
     POST   /api/faults/{service}      break a shop service  {"kind", "probability", "delay_ms"}
     DELETE /api/faults/{service}      fix it
+                                      (both need the X-API-Key header if LOGAD_API_KEY is set)
     WS     /ws                        every second: stats + open alerts
     GET    /                          the dashboard (static/index.html)
 
@@ -18,12 +21,13 @@ Run: uvicorn logad.api.app:create_app --factory --port 8200
 import asyncio
 import contextlib
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
 import httpx
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis
@@ -122,6 +126,41 @@ def create_app(
         async with app.state.engine.connect() as conn:
             await conn.execute(text("select 1"))
         return {"status": "ok"}
+
+    @app.get("/api/ready")
+    async def ready():
+        """Ready = Redis and Postgres reachable AND requests are being scored."""
+        checks = {}
+        try:
+            await app.state.redis.ping()
+            checks["redis"] = "ok"
+        except Exception as error:
+            checks["redis"] = repr(error)
+        try:
+            async with app.state.engine.connect() as conn:
+                version = (
+                    await conn.execute(
+                        text(
+                            "select model_version from scores"
+                            " where scored_at > now() - interval '2 minutes'"
+                            " order by scored_at desc limit 1"
+                        )
+                    )
+                ).scalar()
+            checks["postgres"] = "ok"
+            checks["scoring"] = f"model {version}" if version else "no requests scored in 2 min"
+        except Exception as error:
+            checks["postgres"] = repr(error)
+        ok = checks.get("redis") == "ok" and checks.get("postgres") == "ok"
+        ok = ok and checks.get("scoring", "").startswith("model")
+        if not ok:
+            raise HTTPException(503, checks)
+        return {"status": "ready", **checks}
+
+    async def require_key(x_api_key: str | None = Header(None)):
+        """Admin actions need the key when one is configured (always, once public)."""
+        if settings.api_key and not secrets.compare_digest(x_api_key or "", settings.api_key):
+            raise HTTPException(401, "missing or wrong X-API-Key")
 
     @app.get("/api/stats")
     async def stats():
@@ -230,7 +269,7 @@ def create_app(
                 result[service] = "unreachable"
         return result
 
-    @app.post("/api/faults/{service}")
+    @app.post("/api/faults/{service}", dependencies=[Depends(require_key)])
     async def break_service(service: str, fault: FaultRequest):
         try:
             response = await app.state.shop.post(_fault_url(service), json=fault.model_dump())
@@ -238,7 +277,7 @@ def create_app(
             raise HTTPException(502, f"{service} unreachable: {type(error).__name__}") from error
         return response.json()
 
-    @app.delete("/api/faults/{service}")
+    @app.delete("/api/faults/{service}", dependencies=[Depends(require_key)])
     async def fix_service(service: str):
         try:
             response = await app.state.shop.delete(_fault_url(service))

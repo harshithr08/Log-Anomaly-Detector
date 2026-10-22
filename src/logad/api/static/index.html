@@ -315,10 +315,21 @@ for (const service of SERVICES) {
     el("div", { class: "service-row" },
       el("div", { class: "service-head" }, el("strong", { text: service }), status), buttons));
 }
-async function setFault(service, spec) {
-  await fetch(`/api/faults/${service}`, spec
-    ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(spec) }
-    : { method: "DELETE" });
+function savedKey() {
+  try { return localStorage.getItem("logad-api-key") || ""; } catch { return ""; }
+}
+async function setFault(service, spec, retried = false) {
+  const headers = { "X-API-Key": savedKey() };
+  if (spec) headers["content-type"] = "application/json";
+  const response = await fetch(`/api/faults/${service}`, spec
+    ? { method: "POST", headers, body: JSON.stringify(spec) } : { method: "DELETE", headers });
+  if (response.status === 401 && !retried) {  // this deployment protects Break/Fix
+    const key = prompt("This demo needs an API key for Break/Fix:");
+    if (key) {
+      try { localStorage.setItem("logad-api-key", key); } catch { /* private window */ }
+      return setFault(service, spec, true);
+    }
+  }
   refreshFaults();
 }
 async function refreshFaults() {

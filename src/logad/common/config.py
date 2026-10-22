@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     # rate detector
     rate_window_s: float = 10.0
 
+    # API: admin actions (Break/Fix) need this key in X-API-Key when it is set
+    api_key: str | None = None
+
     # scoring
     models_dir: Path = Path("models")  # holds <version>/ folders and a "latest" file
     scoring_batch_size: int = 200

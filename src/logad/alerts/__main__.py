@@ -1,7 +1,7 @@
 import asyncio
-import logging
 
 from logad.alerts.manager import run
+from logad.common.logs import setup_logging
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+setup_logging()
 asyncio.run(run())
