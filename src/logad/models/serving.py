@@ -14,7 +14,7 @@ import numpy as np
 import onnxruntime as ort
 
 from logad.models.dataset import Session
-from logad.models.features import FEATURES, PathScaler
+from logad.models.features import FEATURES, PathScaler, blame
 from logad.models.sequences import Vocab, log_softmax, surprise_per_session, windows
 
 
@@ -86,8 +86,7 @@ class ServingModels:
                     "probability": float(np.exp(log_probs[step][y[step]])),
                 }
             if timing_flag:
-                services = [j for j, name in enumerate(FEATURES) if name != "total_ms"]
-                worst = max(services, key=lambda j: z[i][j])
+                worst = blame(z[i])
                 explanation["timing"] = {
                     "slowest": FEATURES[worst].removesuffix("_ms"),
                     "spreads_slower": round(float(z[i][worst]), 1),

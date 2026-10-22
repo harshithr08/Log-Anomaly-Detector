@@ -16,7 +16,7 @@ normal. This distance keeps growing with the slowdown, and explains itself.
 import numpy as np
 
 from logad.models.dataset import Session
-from logad.models.features import FEATURES, PathScaler
+from logad.models.features import FEATURES, PathScaler, blame
 
 
 class TimingDetector:
@@ -30,11 +30,9 @@ class TimingDetector:
         return np.linalg.norm(self.scaler.transform(sessions), axis=1)
 
     def explain(self, session: Session) -> str:
-        """The service furthest above normal for this path (the total is always
-        slow too when a service is, so it would not say *where*)."""
+        """Which service is slow (see features.blame), and the whole request."""
         z = self.scaler.transform([session])[0]
-        services = [i for i, name in enumerate(FEATURES) if name != "total_ms"]
-        worst = max(services, key=lambda i: z[i])
+        worst = blame(z)
         total = z[FEATURES.index("total_ms")]
         return (
             f"{FEATURES[worst]} is {z[worst]:.1f} spreads slower than normal "

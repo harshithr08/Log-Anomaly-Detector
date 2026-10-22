@@ -165,3 +165,16 @@ def test_manager_opens_once_resolves_and_reopens(database_url, settings):
         ("shipping", "open"),
         ("shipping", "resolved"),
     ]
+
+
+def test_a_failed_call_blames_the_service_that_was_called():
+    crash = {
+        "lstm": {
+            "after": "shop INFO Payment started",
+            "expected": "payment INFO Handling",
+            "got": "shop ERROR Call to payment failed: ConnectError",
+            "probability": 0.0,
+        }
+    }
+    [evidence] = evidence_from_score("s1", 1000, crash)
+    assert evidence.service == "payment"

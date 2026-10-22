@@ -130,3 +130,15 @@ def test_saved_model_folder_has_everything(tmp_path):
     scaler = PathScaler.from_dict(json.loads((folder / "scaler.json").read_text()))
     sample = traffic[:5]
     assert np.allclose(scaler.transform(sample), timing.scaler.transform(sample))
+
+
+def test_a_slow_downstream_service_gets_the_blame_not_the_shop():
+    import numpy as np
+
+    from logad.models.features import FEATURES, blame
+
+    z = np.zeros(len(FEATURES))
+    z[FEATURES.index("shop_ms")], z[FEATURES.index("payment_ms")] = 9.0, 6.0
+    assert FEATURES[blame(z)] == "payment_ms"  # the shop waited for payment
+    z[FEATURES.index("payment_ms")] = 1.0
+    assert FEATURES[blame(z)] == "shop_ms"  # nothing downstream is slow: the shop itself

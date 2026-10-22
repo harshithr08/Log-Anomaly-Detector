@@ -17,6 +17,7 @@ Rules, per service:
              alarms, which would otherwise keep an alert open forever.
 """
 
+import re
 from collections import Counter
 from dataclasses import dataclass
 
@@ -62,11 +63,21 @@ def service_of_template(template: str) -> str:
     return template.split(" ", 1)[0]
 
 
+CALL_FAILED = re.compile(r"Call to (\w+) failed")
+
+
+def service_of_step(template: str) -> str:
+    """The service an unexpected step points at. 'shop ERROR Call to payment
+    failed: ConnectError' is logged by the shop but says payment is down."""
+    called = CALL_FAILED.search(template)
+    return called.group(1) if called else service_of_template(template)
+
+
 def evidence_from_score(session_id: str, at: float, explanation: dict) -> list[Evidence]:
     """One piece of evidence per detector that flagged this session."""
     found = []
     if "lstm" in explanation:
-        service = service_of_template(explanation["lstm"]["got"])
+        service = service_of_step(explanation["lstm"]["got"])
         found.append(Evidence(service, at, "lstm", session_id, explanation["lstm"]))
     if "timing" in explanation:
         found.append(

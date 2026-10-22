@@ -35,6 +35,19 @@ TIME_UNIT_MS = 10.0
 MIN_PATH_SESSIONS = 30  # fewer than this: use the request type's numbers
 
 
+DOWNSTREAM_SLOW = 3.0  # spreads: a downstream service this slow gets the blame
+
+
+def blame(z: np.ndarray) -> int:
+    """Which service's time (index into FEATURES) to blame for a slow request.
+    The shop's time includes the time it waits for inventory, payment and
+    shipping, so a slow payment makes the shop look slow too: blame the
+    slowest downstream service when it is clearly slow itself, else the shop."""
+    downstream = [FEATURES.index(f"{s}_ms") for s in SERVICES if s != "shop"]
+    worst = max(downstream, key=lambda i: z[i])
+    return worst if z[worst] >= DOWNSTREAM_SLOW else FEATURES.index("shop_ms")
+
+
 def raw_features(session: Session) -> np.ndarray:
     """Times on a log scale (they vary over orders of magnitude)."""
     service_ms = dict.fromkeys(SERVICES, 0.0)
