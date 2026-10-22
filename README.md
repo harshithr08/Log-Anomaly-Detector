@@ -158,6 +158,13 @@ python eval/benchmark.py --configs "parser=2,scoring=1" --fresh
 python eval/demo_gif.py                       # docs/demo.gif (stack running)
 ```
 
+## Deploying it publicly
+
+`docker-compose.prod.yml` adds HTTPS (Caddy), opens the Break buttons to
+visitors with limits (faults fix themselves after 2 minutes), deletes data
+older than a day, and GitHub Actions redeploys after CI passes. One script sets
+up a fresh Ubuntu server: see [docs/DEPLOY.md](docs/DEPLOY.md).
+
 ## Configuration
 
 Settings come from environment variables (`LOGAD_*`, see
@@ -175,6 +182,8 @@ src/logad/models/   LSTM, timing, training, ONNX serving, re-calibration
 src/logad/scoring/  scoring workers        src/logad/rates/     rate detector
 src/logad/alerts/   alert manager          src/logad/api/       API, WebSocket, dashboard
 src/logad/common/   config, database, streams, logging
+src/logad/retention/  deletes data older than a day (public deployment)
+deploy/             Caddyfile, server setup and update scripts
 models/             the bundled trained model
 eval/               chaos, faults, benchmark, dataset collection; results/
 migrations/         Alembic migrations     tests/               pytest

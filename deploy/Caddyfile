@@ -1,0 +1,6 @@
+# The public demo: HTTPS for $DOMAIN, everything proxied to the API, which
+# serves the dashboard, the JSON API and the WebSocket (/ws).
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy api:8000
+}

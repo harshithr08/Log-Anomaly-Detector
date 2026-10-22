@@ -154,6 +154,9 @@ and a push. Tests are written inside each phase, not at the end.
 | 21 | 8 | Fault evaluation + ablation ✅ |
 | 22 | 8 | Drift re-calibration, health checks, auth, structured logs ✅ |
 | 23 | 8 | Final README: diagram, results, demo GIF ✅ |
+| 24 | 9 | Public demo mode: limited Break, self-fixing faults, retention ✅ |
+| 25 | 9 | Production stack (Caddy HTTPS), server setup, auto-deploy ✅ |
+| 26 | 9 | Go live: public link in the README |
 
 ### Phase 1: Foundation
 - Package layout, config from environment variables (`pydantic-settings`), `.env.example`.

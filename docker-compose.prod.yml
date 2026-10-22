@@ -1,0 +1,68 @@
+# Production overrides for the public demo, on top of docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# What changes:
+#   - Only Caddy is reachable from outside (80/443, automatic HTTPS); every other
+#     port is internal to the Docker network.
+#   - Break/Fix open to visitors, within limits (LOGAD_PUBLIC_BREAKS); the API
+#     key in .env skips the limits.
+#   - Old data is deleted after a day; container logs are capped.
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  redis: { <<: *logging, ports: !reset [] }
+  postgres: { <<: *logging, ports: !reset [] }
+  migrate: { <<: *logging }
+  ingest: { <<: *logging, ports: !reset [] }
+  shipper: { <<: *logging }
+  parser: { <<: *logging }
+  sessions: { <<: *logging }
+  rates: { <<: *logging }
+  alerts: { <<: *logging }
+  scoring: { <<: *logging }
+  shop: { <<: *logging, ports: !reset [] }
+  inventory: { <<: *logging, ports: !reset [] }
+  payment: { <<: *logging, ports: !reset [] }
+  shipping: { <<: *logging, ports: !reset [] }
+  traffic: { <<: *logging }
+
+  api:
+    <<: *logging
+    ports: !reset []
+    # behind Caddy: take the visitor's IP from X-Forwarded-For (for the Break limit)
+    command: ["uvicorn", "logad.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--proxy-headers", "--forwarded-allow-ips", "*"]
+    environment:
+      LOGAD_API_KEY: ${LOGAD_API_KEY:?set LOGAD_API_KEY in .env}
+      LOGAD_PUBLIC_BREAKS: "true"
+
+  retention: # deletes data older than a day, so the disk never fills
+    <<: *logging
+    image: logad
+    restart: unless-stopped
+    command: ["python", "-m", "logad.retention"]
+    environment:
+      LOGAD_DATABASE_URL: postgresql+asyncpg://logad:logad@postgres:5432/logad
+      LOGAD_RETENTION_HOURS: ${RETENTION_HOURS:-24}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  caddy: # HTTPS (Let's Encrypt certificates, renewed automatically) -> api
+    <<: *logging
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env, e.g. 203-0-113-7.sslip.io}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data # certificates: keep them, Let's Encrypt limits re-issuing
+    depends_on:
+      api: { condition: service_healthy }
+
+volumes:
+  caddy-data:

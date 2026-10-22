@@ -1,0 +1,37 @@
+name: Deploy
+
+# After CI passes on main, update the public demo: the server checks out the
+# exact commit that passed and rebuilds (deploy/up.sh). Does nothing until the
+# DEPLOY_* secrets are set (see docs/DEPLOY.md).
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency: deploy # one deploy at a time; a newer push waits
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+    steps:
+      - name: No server configured yet
+        if: env.DEPLOY_HOST == ''
+        run: echo "::notice::DEPLOY_HOST secret not set; nothing to deploy"
+      - name: Deploy over SSH
+        if: env.DEPLOY_HOST != ''
+        env:
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_SSH_KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          echo "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts  # pinned: no trust-on-first-use
+          ssh -i ~/.ssh/deploy "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd Log-Anomaly-Detector && git fetch -q origin && git checkout -q --detach $SHA && ./deploy/up.sh"
