@@ -13,8 +13,11 @@ __pycache__/
 # Datasets and generated data
 /data/
 
-# Trained models are build outputs
-/models/
+# Trained models are build outputs, except the bundled one, so a fresh clone
+# scores requests right away (python -m logad.models.train makes your own)
+/models/*
+!/models/latest
+!/models/v20261021-082708/
 
 # Shop logs and ground truth written at runtime
 /runtime/

@@ -33,6 +33,7 @@ train = [
     "torch==2.14.1",
 ]
 dev = [
+    "pillow==13.0.0",  # only for recording docs/demo.gif (eval/demo_gif.py)
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "ruff==0.17.1",

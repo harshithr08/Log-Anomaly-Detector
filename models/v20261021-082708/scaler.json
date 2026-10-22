@@ -1,0 +1,475 @@
+{
+  "features": [
+    "total_ms",
+    "shop_ms",
+    "inventory_ms",
+    "payment_ms",
+    "shipping_ms"
+  ],
+  "paths": [
+    [
+      [
+        "shop INFO Handling GET /search",
+        "shop INFO Searching products query=<*>",
+        "inventory INFO Handling GET /stock",
+        "inventory INFO Looking up stock for <*> products",
+        "inventory INFO Completed GET /stock status=<*> duration_ms=<*>",
+        "shop INFO Search returned results count=<*>",
+        "shop INFO Completed GET /search status=<*> duration_ms=<*>"
+      ],
+      [
+        1.064712578568723,
+        1.0296194171811581,
+        0.6418538861723948,
+        0.0,
+        0.0
+      ],
+      [
+        0.16189975162037185,
+        0.16802110883616267,
+        0.16490312661441872,
+        0.1,
+        0.1
+      ]
+    ],
+    [
+      [
+        "shop INFO Handling GET /products",
+        "shop INFO Listing products category=<*>",
+        "shop INFO Cache miss key=<*>",
+        "inventory INFO Handling GET /stock",
+        "inventory INFO Looking up stock for <*> products",
+        "inventory INFO Completed GET /stock status=<*> duration_ms=<*>",
+        "shop INFO Returning products count=<*>",
+        "shop INFO Completed GET /products status=<*> duration_ms=<*>"
+      ],
+      [
+        1.09861165288503,
+        1.0647107369924282,
+        0.6418538861723948,
+        0.0,
+        0.0
+      ],
+      [
+        0.15620875733121753,
+        0.16189887026729696,
+        0.16490312661441872,
+        0.1,
+        0.1
+      ]
+    ],
+    [
+      [
+        "shop INFO Handling GET /products/<*>",
+        "shop INFO Cache miss key=<*>",
+        "inventory INFO Handling GET /stock/<*>",
+        "inventory INFO Stock level product=<*> available=<*>",
+        "inventory INFO Completed GET /stock/<*> status=<*> duration_ms=<*>",
+        "shop INFO Viewed product=<*> available=<*>",
+        "shop INFO Completed GET /products/<*> status=<*> duration_ms=<*>"
+      ],
+      [
+        0.9162853912837222,
+        0.8754687373538999,
+        0.4700036292457356,
+        0.0,
+        0.0
+      ],
+      [
+        0.12361291775773621,
+        0.12900306752482496,
+        0.1,
+        0.1,
+        0.1
+      ]
+    ],
+    [
+      [
+        "shop INFO Handling POST /checkout",
+        "shop INFO Starting checkout order=<*> items=<*>",
+        "inventory INFO Handling POST /reservations",
+        "inventory INFO Checking stock levels order=<*> items=<*>",
+        "inventory INFO Reserved stock order=<*> reservation=<*>",
+        "inventory INFO Completed POST /reservations status=<*> duration_ms=<*>",
+        "shop INFO Stock reserved order=<*> reservation=<*>",
+        "shop INFO Payment started order=<*> amount=<*>",
+        "payment INFO Handling POST /charges",
+        "payment INFO Charging order=<*> amount=<*> card=<*>",
+        "payment INFO Fraud check passed order=<*> score=<*>",
+        "payment INFO Payment authorized order=<*> charge=<*>",
+        "payment INFO Completed POST /charges status=<*> duration_ms=<*>",
+        "shop INFO Payment captured order=<*> charge=<*>",
+        "shipping INFO Handling POST /shipments",
+        "shipping INFO Creating shipment order=<*> items=<*>",
+        "shipping INFO Validated address order=<*> zone=<*>",
+        "shipping INFO Selected carrier=<*> eta_days=<*>",
+        "shipping INFO Shipment created order=<*> tracking=<*>",
+        "shipping INFO Completed POST /shipments status=<*> duration_ms=<*>",
+        "shop INFO Shipment booked order=<*> tracking=<*>",
+        "inventory INFO Handling POST /reservations/<*>/commit",
+        "inventory INFO Committed reservation=<*>",
+        "inventory INFO Completed POST /reservations/<*>/commit status=<*> duration_ms=<*>",
+        "shop INFO Checkout complete order=<*> total=<*>",
+        "shop INFO Completed POST /checkout status=<*> duration_ms=<*>"
+      ],
+      [
+        2.90690159140341,
+        2.9069010598473755,
+        1.2809338454620642,
+        2.0918640616783932,
+        1.667706820558076
+      ],
+      [
+        0.14645208591677367,
+        0.14645351796433534,
+        0.12900306752482496,
+        0.2672561800117571,
+        0.20842679999097538
+      ]
+    ],
+    [
+      [
+        "shop INFO Handling GET /products",
+        "shop INFO Listing products category=<*>",
+        "shop INFO Cache hit key=<*>",
+        "shop INFO Returning products count=<*>",
+        "shop INFO Completed GET /products status=<*> duration_ms=<*>"
+      ],
+      [
+        0.40547273747359197,
+        0.33647223662121295,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.10228034785029977,
+        0.10228883126655419,
+        0.1,
+        0.1,
+        0.1
+      ]
+    ],
+    [
+      [
+        "shop INFO Handling POST /cart/items",
+        "shop INFO Adding to cart product=<*> quantity=<*>",
+        "inventory INFO Handling GET /stock/<*>",
+        "inventory INFO Stock level product=<*> available=<*>",
+        "inventory INFO Completed GET /stock/<*> status=<*> duration_ms=<*>",
+        "shop INFO Added to cart product=<*> quantity=<*>",
+        "shop INFO Completed POST /cart/items status=<*> duration_ms=<*>"
+      ],
+      [
+        0.9162949280323434,
+        0.9162907318741551,
+        0.4700036292457356,
+        0.0,
+        0.0
+      ],
+      [
+        0.12362705694124192,
+        0.16802110883616267,
+        0.1,
+        0.1,
+        0.1
+      ]
+    ],
+    [
+      [
+        "shop INFO Handling GET /products/<*>",
+        "shop INFO Cache hit key=<*>",
+        "shop INFO Viewed product=<*> available=<*>",
+        "shop INFO Completed GET /products/<*> status=<*> duration_ms=<*>"
+      ],
+      [
+        0.33646855815636983,
+        0.262364264467491,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.10230559625571353,
+        0.1,
+        0.1,
+        0.1,
+        0.1
+      ]
+    ],
+    [
+      [
+        "shop INFO Handling GET /search",
+        "shop INFO Searching products query=<*>",
+        "shop INFO Search returned no results",
+        "shop INFO Completed GET /search status=<*> duration_ms=<*>"
+      ],
+      [
+        0.33646855815636983,
+        0.262364264467491,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.10986463304153074,
+        0.1,
+        0.1,
+        0.1,
+        0.1
+      ]
+    ],
+    [
+      [
+        "shop INFO Handling POST /checkout",
+        "shop INFO Starting checkout order=<*> items=<*>",
+        "inventory INFO Handling POST /reservations",
+        "inventory INFO Checking stock levels order=<*> items=<*>",
+        "inventory WARNING Insufficient stock product=<*> requested=<*> available=<*>",
+        "inventory WARNING Completed POST /reservations status=<*> duration_ms=<*>",
+        "shop WARNING Checkout failed: out of stock order=<*>",
+        "shop WARNING Completed POST /checkout status=<*> duration_ms=<*>"
+      ],
+      [
+        1.1631531343841253,
+        1.1631508098056809,
+        0.832909122935104,
+        0.0,
+        0.0
+      ],
+      [
+        0.1459601570238967,
+        0.17462512866415397,
+        0.13487475836781035,
+        0.1,
+        0.1
+      ]
+    ],
+    [
+      [
+        "shop INFO Handling POST /cart/items",
+        "shop INFO Adding to cart product=<*> quantity=<*>",
+        "inventory INFO Handling GET /stock/<*>",
+        "inventory INFO Stock level product=<*> available=<*>",
+        "inventory INFO Completed GET /stock/<*> status=<*> duration_ms=<*>",
+        "shop WARNING Cannot add to cart product=<*> requested=<*> available=<*>",
+        "shop WARNING Completed POST /cart/items status=<*> duration_ms=<*>"
+      ],
+      [
+        0.9162949280323434,
+        0.9162907318741551,
+        0.4700036292457356,
+        0.0,
+        0.0
+      ],
+      [
+        0.18952632216530663,
+        0.1895257566005554,
+        0.1,
+        0.1,
+        0.1
+      ]
+    ],
+    [
+      [
+        "shop INFO Handling POST /checkout",
+        "shop INFO Starting checkout order=<*> items=<*>",
+        "inventory INFO Handling POST /reservations",
+        "inventory INFO Checking stock levels order=<*> items=<*>",
+        "inventory INFO Reserved stock order=<*> reservation=<*>",
+        "inventory INFO Completed POST /reservations status=<*> duration_ms=<*>",
+        "shop INFO Stock reserved order=<*> reservation=<*>",
+        "shop INFO Payment started order=<*> amount=<*>",
+        "payment INFO Handling POST /charges",
+        "payment INFO Charging order=<*> amount=<*> card=<*>",
+        "payment INFO Fraud check passed order=<*> score=<*>",
+        "payment WARNING Processor timeout order=<*> attempt=<*> retrying",
+        "payment INFO Payment authorized order=<*> charge=<*>",
+        "payment INFO Completed POST /charges status=<*> duration_ms=<*>",
+        "shop INFO Payment captured order=<*> charge=<*>",
+        "shipping INFO Handling POST /shipments",
+        "shipping INFO Creating shipment order=<*> items=<*>",
+        "shipping INFO Validated address order=<*> zone=<*>",
+        "shipping INFO Selected carrier=<*> eta_days=<*>",
+        "shipping INFO Shipment created order=<*> tracking=<*>",
+        "shipping INFO Completed POST /shipments status=<*> duration_ms=<*>",
+        "shop INFO Shipment booked order=<*> tracking=<*>",
+        "inventory INFO Handling POST /reservations/<*>/commit",
+        "inventory INFO Committed reservation=<*>",
+        "inventory INFO Completed POST /reservations/<*>/commit status=<*> duration_ms=<*>",
+        "shop INFO Checkout complete order=<*> total=<*>",
+        "shop INFO Completed POST /checkout status=<*> duration_ms=<*>"
+      ],
+      [
+        3.1738695889747284,
+        3.171782019807447,
+        1.2809338454620642,
+        2.613732812788043,
+        1.7227665977411035
+      ],
+      [
+        0.1391118412350303,
+        0.13628759059254933,
+        0.12900306752482496,
+        0.2227021601173138,
+        0.1862993856846357
+      ]
+    ],
+    [
+      [
+        "shop INFO Handling POST /checkout",
+        "shop INFO Starting checkout order=<*> items=<*>",
+        "inventory INFO Handling POST /reservations",
+        "inventory INFO Checking stock levels order=<*> items=<*>",
+        "inventory INFO Reserved stock order=<*> reservation=<*>",
+        "inventory INFO Completed POST /reservations status=<*> duration_ms=<*>",
+        "shop INFO Stock reserved order=<*> reservation=<*>",
+        "shop INFO Payment started order=<*> amount=<*>",
+        "payment INFO Handling POST /charges",
+        "payment INFO Charging order=<*> amount=<*> card=<*>",
+        "payment INFO Fraud check passed order=<*> score=<*>",
+        "payment WARNING Card declined order=<*> reason=<*>",
+        "payment WARNING Completed POST /charges status=<*> duration_ms=<*>",
+        "shop WARNING Payment declined order=<*>",
+        "inventory INFO Handling DELETE /reservations/<*>",
+        "inventory INFO Released reservation=<*> items=<*>",
+        "inventory INFO Completed DELETE /reservations/<*> status=<*> duration_ms=<*>",
+        "shop INFO Released reservation=<*> order=<*>",
+        "shop WARNING Completed POST /checkout status=<*> duration_ms=<*>"
+      ],
+      [
+        2.5915101864936245,
+        2.5877357682745954,
+        1.1314021114911006,
+        2.134148934672769,
+        0.0
+      ],
+      [
+        0.1581002273272964,
+        0.1525059320224463,
+        0.11791465812898727,
+        0.2508962451078238,
+        0.1
+      ]
+    ],
+    [
+      [
+        "shop INFO Handling GET /products/<*>",
+        "shop WARNING Product not found product=<*>",
+        "shop WARNING Completed GET /products/<*> status=<*> duration_ms=<*>"
+      ],
+      [
+        0.2623658783765703,
+        0.18232155679395465,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.1,
+        0.1,
+        0.1,
+        0.1,
+        0.1
+      ]
+    ]
+  ],
+  "routes": {
+    "shop INFO Handling GET /search": [
+      [
+        0.9555126921392263,
+        0.9162907318741551,
+        0.5306282510621704,
+        0.0,
+        0.0
+      ],
+      [
+        0.3078477196722872,
+        0.3248783802992654,
+        0.38225743745129315,
+        0.1,
+        0.1
+      ]
+    ],
+    "shop INFO Handling GET /products": [
+      [
+        0.40547273747359197,
+        0.4054651081081644,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.10230559625571353,
+        0.10228883126655419,
+        0.1,
+        0.1,
+        0.1
+      ]
+    ],
+    "shop INFO Handling GET /products/<*>": [
+      [
+        0.5306264559089047,
+        0.4700036292457356,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.3977231322494389,
+        0.3308326291784473,
+        0.1,
+        0.1,
+        0.1
+      ]
+    ],
+    "shop INFO Handling POST /checkout": [
+      [
+        2.850705740769018,
+        2.8449093838194073,
+        1.2237754316221157,
+        1.9878743481543455,
+        1.589235205116581
+      ],
+      [
+        0.22976805406732329,
+        0.23100454536476064,
+        0.16490312661441855,
+        0.4197629870209433,
+        0.3008800953094932
+      ]
+    ],
+    "shop INFO Handling POST /cart/items": [
+      [
+        0.9162949280323434,
+        0.9162907318741551,
+        0.4700036292457356,
+        0.0,
+        0.0
+      ],
+      [
+        0.12362705694124192,
+        0.16802110883616267,
+        0.1,
+        0.1,
+        0.1
+      ]
+    ]
+  },
+  "fallback": [
+    [
+      0.8329096205041888,
+      0.832909122935104,
+      0.4054651081081644,
+      0.0,
+      0.0
+    ],
+    [
+      0.6337179227811629,
+      0.6337284963824207,
+      0.6011425692811645,
+      0.1,
+      0.1
+    ]
+  ]
+}

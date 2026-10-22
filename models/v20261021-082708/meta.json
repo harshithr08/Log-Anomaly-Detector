@@ -1,0 +1,18 @@
+{
+  "version": "v20261021-082708",
+  "created": "2026-10-21T08:27:08.727847+00:00",
+  "data": {
+    "dir": "data\\shop",
+    "train": 9887,
+    "val": 4238,
+    "test": 11799,
+    "test_broken": 1792
+  },
+  "lstm": {
+    "epochs": 6,
+    "vocab": 75
+  },
+  "timing": {
+    "paths": 13
+  }
+}

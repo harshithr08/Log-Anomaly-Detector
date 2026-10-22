@@ -1,0 +1,97 @@
+[
+  {
+    "detector": "ERROR line (rule)",
+    "precision": 1.0,
+    "recall": 0.052455357142857144,
+    "f1": 0.09968186638388123,
+    "pr_auc": 0.19636585803276307,
+    "false_alarm_rate": 0.0,
+    "recall_skip": 0.0,
+    "recall_slow": 0.0,
+    "recall_error": 1.0,
+    "seconds": 0.0686812000349164
+  },
+  {
+    "detector": "Unseen sequence",
+    "precision": 1.0,
+    "recall": 0.19419642857142858,
+    "f1": 0.3252336448598131,
+    "pr_auc": 0.316579681389464,
+    "false_alarm_rate": 0.0,
+    "recall_skip": 1.0,
+    "recall_slow": 0.0,
+    "recall_error": 1.0,
+    "seconds": 0.11133650003466755
+  },
+  {
+    "detector": "Unseen event type",
+    "precision": 1.0,
+    "recall": 0.052455357142857144,
+    "f1": 0.09968186638388123,
+    "pr_auc": 0.19636585803276307,
+    "false_alarm_rate": 0.0,
+    "recall_skip": 0.0,
+    "recall_slow": 0.0,
+    "recall_error": 1.0,
+    "seconds": 0.09925400000065565
+  },
+  {
+    "detector": "Markov chain (event order)",
+    "precision": 1.0,
+    "recall": 0.19419642857142858,
+    "f1": 0.3252336448598131,
+    "pr_auc": 0.3842813780182813,
+    "false_alarm_rate": 0.0,
+    "recall_skip": 1.0,
+    "recall_slow": 0.0,
+    "recall_error": 1.0,
+    "seconds": 0.30953820003196597
+  },
+  {
+    "detector": "Isolation Forest (timing)",
+    "precision": 0.9942028985507246,
+    "recall": 0.765625,
+    "f1": 0.8650693568726355,
+    "pr_auc": 0.9051892797973591,
+    "false_alarm_rate": 0.000799440391725792,
+    "recall_skip": 0.0,
+    "recall_slow": 0.9501385041551247,
+    "recall_error": 0.0,
+    "seconds": 1.0571831000270322
+  },
+  {
+    "detector": "LSTM (event order)",
+    "precision": 1.0,
+    "recall": 0.19419642857142858,
+    "f1": 0.3252336448598131,
+    "pr_auc": 0.39145550159992676,
+    "false_alarm_rate": 0.0,
+    "recall_skip": 1.0,
+    "recall_slow": 0.0,
+    "recall_error": 1.0,
+    "seconds": 16.826569900033064
+  },
+  {
+    "detector": "Timing vs same path (distance)",
+    "precision": 0.9949312092686459,
+    "recall": 0.7667410714285714,
+    "f1": 0.866057358966278,
+    "pr_auc": 0.8622762069415396,
+    "false_alarm_rate": 0.0006995103427600679,
+    "recall_skip": 0.0,
+    "recall_slow": 0.9515235457063712,
+    "recall_error": 0.0,
+    "seconds": 0.3210362000390887
+  },
+  {
+    "detector": "LSTM + timing (either)",
+    "precision": 0.9959514170040485,
+    "recall": 0.9609375,
+    "f1": 0.9781312127236581,
+    "pr_auc": 0.9979247866036193,
+    "false_alarm_rate": 0.0006995103427600679,
+    "recall_skip": 1.0,
+    "recall_slow": 0.9515235457063712,
+    "recall_error": 1.0
+  }
+]
